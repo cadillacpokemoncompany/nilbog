@@ -19,6 +19,7 @@ const OFFLINE_GRACE = 6;
 const NOVA_SLOT = 1;
 const ROUTE_BATCH_SIZE = 5;
 const ROUTE_BATCH_DELAY_MS = 180;
+const WHATNOT_PACKAGE = "com.whatnot_mobile";
 const FIXED_AUTOPILOT_RULES: Array<{
   id: number;
   score: number;
@@ -90,6 +91,24 @@ const mergeDeviceRuntime = (
   return [...active, ...disappeared].sort((left, right) => left.label.localeCompare(right.label));
 };
 
+const patchDeviceRuntime = (
+  runtime: DeviceRuntimeState[],
+  deviceIds: string[],
+  patch: Partial<Omit<DeviceRuntimeState, "id" | "label" | "status" | "selected" | "lastSeenAt">>,
+  nowIso: string
+): DeviceRuntimeState[] => {
+  const ids = new Set(deviceIds);
+  return runtime.map((device) =>
+    ids.has(device.id)
+      ? {
+          ...device,
+          ...patch,
+          lastActionAt: nowIso
+        }
+      : device
+  );
+};
+
 const easternDateAndHour = (date = new Date()): { dateKey: string; hour: number } => {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -110,20 +129,39 @@ const routeDevicesInBatches = async (
   adb: AdbService,
   devices: AdbDevice[],
   url: string
-): Promise<Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }>> => {
-  const results: Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }> = [];
+): Promise<Array<{ deviceId: string; ok: true; retried: boolean } | { deviceId: string; ok: false; message: string; retried: boolean }>> => {
+  const results: Array<{ deviceId: string; ok: true; retried: boolean } | { deviceId: string; ok: false; message: string; retried: boolean }> = [];
   for (let index = 0; index < devices.length; index += ROUTE_BATCH_SIZE) {
     const batch = devices.slice(index, index + ROUTE_BATCH_SIZE);
     const batchResults = await Promise.all(
       batch.map(async (device) => {
         try {
           await adb.openUrl(device.id, url);
-          return { deviceId: device.id, ok: true as const };
+          await new Promise((resolve) => setTimeout(resolve, 700));
+          const foreground = await adb.getForegroundPackage(device.id).catch(() => null);
+          if (foreground === WHATNOT_PACKAGE) {
+            return { deviceId: device.id, ok: true as const, retried: false };
+          }
+
+          await adb.openUrl(device.id, url);
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          const retryForeground = await adb.getForegroundPackage(device.id).catch(() => null);
+          if (retryForeground === WHATNOT_PACKAGE) {
+            return { deviceId: device.id, ok: true as const, retried: true };
+          }
+
+          return {
+            deviceId: device.id,
+            ok: false as const,
+            message: `Whatnot not foreground after route (${retryForeground ?? foreground ?? "unknown"})`,
+            retried: true
+          };
         } catch (error) {
           return {
             deviceId: device.id,
             ok: false as const,
-            message: error instanceof Error ? error.message : String(error)
+            message: error instanceof Error ? error.message : String(error),
+            retried: false
           };
         }
       })
@@ -498,6 +536,24 @@ export class Scanner {
         }
         this.lastAutoNavKey = nextKey;
         this.updateRuntime("PARKED", decision.detail, decision, `Parked ${parkedCount}/${connectedDevices.length} phone(s) on Home while waiting`);
+        this.snapshot = {
+          ...this.snapshot,
+          autoClicker: {
+            ...this.snapshot.autoClicker,
+            deviceRuntime: patchDeviceRuntime(
+              this.snapshot.autoClicker.deviceRuntime,
+              connectedDevices.map((device) => device.id),
+              {
+                phase: "parked",
+                targetStreamer: null,
+                targetUrl: null,
+                lastAction: "parked on home",
+                lastError: parkedCount === connectedDevices.length ? null : "some devices failed to park"
+              },
+              new Date().toISOString()
+            )
+          }
+        };
       } else if (!nextKey) {
         this.lastAutoNavKey = null;
         this.updateRuntime("NO_DEVICE", "No connected device", decision);
@@ -527,9 +583,64 @@ export class Scanner {
     }
 
     let routedCount = connectedDevices.length;
+    const routeStartedAt = new Date().toISOString();
     if (!this.snapshot.autoClicker.dryRun) {
+      this.snapshot = {
+        ...this.snapshot,
+        autoClicker: {
+          ...this.snapshot.autoClicker,
+          deviceRuntime: patchDeviceRuntime(
+            this.snapshot.autoClicker.deviceRuntime,
+            connectedDevices.map((device) => device.id),
+            {
+              phase: "routing",
+              targetStreamer: target.streamer,
+              targetUrl: target.resolvedUrl,
+              lastAction: `routing to ${target.streamer}`,
+              lastError: null
+            },
+            routeStartedAt
+          )
+        }
+      };
       const routeResults = await routeDevicesInBatches(this.adb, connectedDevices, target.resolvedUrl);
       routedCount = routeResults.filter((result) => result.ok).length;
+      const routeCompletedAt = new Date().toISOString();
+      const okIds = routeResults.filter((result) => result.ok).map((result) => result.deviceId);
+      const failedResults = routeResults.filter((result) => !result.ok);
+      let nextDeviceRuntime = patchDeviceRuntime(
+        this.snapshot.autoClicker.deviceRuntime,
+        okIds,
+        {
+          phase: "on_stream",
+          targetStreamer: target.streamer,
+          targetUrl: target.resolvedUrl,
+          lastAction: `on ${target.streamer}`,
+          lastError: null
+        },
+        routeCompletedAt
+      );
+      for (const failed of failedResults) {
+        nextDeviceRuntime = patchDeviceRuntime(
+          nextDeviceRuntime,
+          [failed.deviceId],
+          {
+            phase: "failed",
+            targetStreamer: target.streamer,
+            targetUrl: target.resolvedUrl,
+            lastAction: `failed route to ${target.streamer}`,
+            lastError: failed.message
+          },
+          routeCompletedAt
+        );
+      }
+      this.snapshot = {
+        ...this.snapshot,
+        autoClicker: {
+          ...this.snapshot.autoClicker,
+          deviceRuntime: nextDeviceRuntime
+        }
+      };
     }
     this.lastAutoNavKey = nextKey;
     const routedAction = this.snapshot.autoClicker.dryRun
