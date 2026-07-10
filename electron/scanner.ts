@@ -685,12 +685,18 @@ export class Scanner {
     detail: string;
     ruleHits: AppSnapshot["autoClicker"]["ruleHits"];
   } {
+    const now = Date.now();
+    const maxAgeMs = Math.max(0, this.snapshot.autoClicker.maxMatchAgeMs || 0);
     const liveCards = this.snapshot.cards.filter((card) => card.status === "live" && card.resolvedUrl && card.giveawayName);
+    const freshLiveCards = liveCards.filter((card) => {
+      if (!maxAgeMs) return true;
+      const resolvedAtMs = card.lastResolvedAt ? Date.parse(card.lastResolvedAt) : 0;
+      return Number.isFinite(resolvedAtMs) && now - resolvedAtMs <= maxAgeMs;
+    });
     let best: { card: StreamCard; score: number; ruleId: number; phrase: string; resolvedAtMs: number; viewerRank: number } | null = null;
     const ruleHits: AppSnapshot["autoClicker"]["ruleHits"] = [];
-    const now = Date.now();
 
-    for (const card of liveCards) {
+    for (const card of freshLiveCards) {
       const resolvedAtMs = card.lastResolvedAt ? Date.parse(card.lastResolvedAt) : now;
       const viewerRank = card.viewerCount === null || card.viewerCount === undefined ? Number.POSITIVE_INFINITY : card.viewerCount;
       const title = card.giveawayName?.toLowerCase() ?? "";
@@ -724,7 +730,7 @@ export class Scanner {
         card: null,
         score: null,
         ruleId: null,
-        detail: liveCards.length ? "No fixed keyword match" : "No live giveaway title to score",
+        detail: liveCards.length && !freshLiveCards.length ? "Matching info is stale" : liveCards.length ? "No fixed keyword match" : "No live giveaway title to score",
         ruleHits
       };
     }

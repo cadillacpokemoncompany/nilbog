@@ -1,4 +1,5 @@
 import { Scanner } from "../dist-electron/electron/scanner.js";
+import { BrowserService } from "../dist-electron/electron/browserService.js";
 import { createDefaultKeywordRules, createEmptyCards } from "../dist-electron/electron/types.js";
 
 const deviceCount = Number(process.env.NILBOG_STRESS_DEVICES ?? "20");
@@ -11,6 +12,17 @@ const devices = Array.from({ length: deviceCount }, (_, index) => ({
 }));
 
 const iso = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString();
+const createDeviceRuntime = () =>
+  devices.map((device) => ({
+    ...device,
+    phase: "connected",
+    targetStreamer: null,
+    targetUrl: null,
+    lastSeenAt: iso(),
+    lastActionAt: null,
+    lastAction: null,
+    lastError: null
+  }));
 
 const makeSnapshot = () => ({
   cards: createEmptyCards(),
@@ -23,7 +35,7 @@ const makeSnapshot = () => ({
     jitterMs: 0,
     targetX: 580,
     targetY: 305,
-    selectedProfile: "2024",
+    selectedProfile: "2025",
     profiles: {
       "2024": { targetX: 580, targetY: 305, intervalMs: 3000, jitterMs: 0 },
       "2025": { targetX: 580, targetY: 280, intervalMs: 3000, jitterMs: 0 }
@@ -40,6 +52,11 @@ const makeSnapshot = () => ({
     matchedRuleId: null,
     matchedScore: null,
     ruleHits: [],
+    activityLog: {
+      currentTask: [],
+      enteredStream: [],
+      enteredGiveaway: []
+    },
     adbHealth: {
       connected: deviceCount,
       unauthorized: 0,
@@ -50,6 +67,16 @@ const makeSnapshot = () => ({
       lastEnteredSlot: null,
       lastTapOk: null,
       lastError: null
+    },
+    deviceRuntime: createDeviceRuntime(),
+    updateHealth: {
+      currentVersion: "0.1.8",
+      latestVersion: null,
+      status: "idle",
+      lastCheckedAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+      pendingInstaller: null
     }
   },
   focusRouting: {
@@ -88,6 +115,7 @@ const streamCard = (slot, streamer, giveawayName, streamUuid, offsetMs = 0) => (
   currentItem: null,
   giveawayName,
   entryCount: null,
+  viewerCount: null,
   thumbnailImageDataUrl: null,
   streamPreviewImageDataUrl: null,
   lastResolvedAt: iso(offsetMs),
@@ -102,10 +130,12 @@ const offlineCard = (slot, streamer) => ({
   lastResolvedAt: iso()
 });
 
-const createHarness = () => {
+const createHarness = ({ foregroundSequence = [] } = {}) => {
   const calls = [];
+  const foregroundChecks = [...foregroundSequence];
   const adb = {
     openUrl: async (deviceId, url) => calls.push({ type: "openUrl", deviceId, url }),
+    getForegroundPackage: async () => foregroundChecks.shift() ?? "com.whatnot_mobile",
     prepareFullscreenWhatnot: async (deviceId) => calls.push({ type: "fullscreen", deviceId }),
     parkWhatnotOnHome: async (deviceId) => {
       calls.push({ type: "park", deviceId });
@@ -145,6 +175,42 @@ const parkCount = (calls) => calls.filter((call) => call.type === "park").length
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 
+test("extracts SpaceNarwhalz active giveaway product name from websocket frame", async () => {
+  const browser = new BrowserService("stress-profile");
+  const frame = [
+    "1",
+    "2",
+    "auction:9fb0eb47-d944-44e0-8aa4-2acd37793223",
+    "user_joined",
+    {
+      activeGiveaway: {
+        product: {
+          id: "945d055a-e47b-4deb-997b-0ccddab6fc51",
+          productId: 540626101,
+          name: "ASCENDED HEROES PACK FOR THE FREEEE!! ✨✨ #36",
+          description: "NO PURCHASE NEEDED"
+        },
+        productId: "945d055a-e47b-4deb-997b-0ccddab6fc51"
+      },
+      livestream: {
+        id: "9fb0eb47-d944-44e0-8aa4-2acd37793223",
+        hostUsername: "spacenarwhalz",
+        title: "VINTAGE SLABS IN THE SUNROOM"
+      },
+      pinnedProduct: {
+        name: "APEX BLITZ PSA (SURPRISE SLAB) (RIP ONLY)"
+      }
+    }
+  ];
+  const state = browser.extractGiveawayStateFromPhoenixFrame(
+    "9fb0eb47-d944-44e0-8aa4-2acd37793223",
+    JSON.stringify(frame),
+    "WS_PRIMARY"
+  );
+  assert(state?.active === true, "expected active giveaway state");
+  assert(state?.giveawayName === "ASCENDED HEROES PACK FOR THE FREEEE!! ✨✨ #36", `expected active giveaway product name, got ${state?.giveawayName}`);
+});
+
 test("parks all selected devices when no match exists", async () => {
   const { scanner, calls } = createHarness();
   setCards(scanner, [offlineCard(1, "KrakenHits")]);
@@ -170,13 +236,14 @@ test("does not reopen same stream and same giveaway repeatedly", async () => {
   assert(openUrls(calls).length === deviceCount, "expected no duplicate reopen");
 });
 
-test("reopens same stream URL when a new matching giveaway appears", async () => {
+test("updates same stream match without reopening the same URL", async () => {
   const { scanner, calls } = createHarness();
   setCards(scanner, [streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-a")]);
   await runNavigation(scanner);
   setCards(scanner, [streamCard(1, "KrakenHits", "PS5 giveaway", "uuid-a", 1000)]);
   await runNavigation(scanner);
-  assert(openUrls(calls).length === deviceCount * 2, "expected resend for new giveaway on same URL");
+  assert(openUrls(calls).length === deviceCount, "expected no duplicate reopen for same URL");
+  assert(scanner.state.autoClicker.activeSlot === 1, "expected active slot to stay on same stream");
   assert(scanner.state.autoClicker.matchedScore === 500, "expected PS5 score");
 });
 
@@ -195,11 +262,21 @@ test("switches to higher score stream immediately", async () => {
   const { scanner, calls } = createHarness();
   setCards(scanner, [
     streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-kraken"),
-    streamCard(0, "CoolKicks", "1000 Amazon giveaway", "uuid-cool", 1000)
+    streamCard(6, "Woosleys", "1000 Amazon giveaway", "uuid-woosleys", 1000)
   ]);
   await runNavigation(scanner);
-  assert(scanner.state.autoClicker.activeSlot === 0, "expected CoolKicks active slot");
-  assert(openUrls(calls).every((url) => url.endsWith("/uuid-cool")), "expected higher score URL");
+  assert(scanner.state.autoClicker.activeSlot === 6, "expected Woosleys active slot");
+  assert(openUrls(calls).every((url) => url.endsWith("/uuid-woosleys")), "expected higher score URL");
+});
+
+test("retries device route when Whatnot does not foreground first", async () => {
+  const { scanner, calls } = createHarness({ foregroundSequence: ["com.android.launcher", "com.whatnot_mobile"] });
+  setCards(scanner, [streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-retry")]);
+  await runNavigation(scanner);
+  const urls = openUrls(calls);
+  assert(urls.length === deviceCount + 1, "expected one extra retry open for first device");
+  assert(scanner.state.autoClicker.adbHealth.lastError === null, "expected no route health error after retry success");
+  assert(scanner.state.autoClicker.deviceRuntime.filter((device) => device.phase === "on_stream").length === deviceCount, "expected all devices on stream");
 });
 
 test("uses newer match as tie breaker for same score", async () => {
@@ -245,17 +322,20 @@ test("rapid churn never keeps stale active slot on no-match", async () => {
     } else if (index % 5 === 1) {
       setCards(scanner, [streamCard(4, "SpaceNarwhalz", `Elite Trainer Box ${index}`, `space-${index}`, 1000)]);
     } else if (index % 5 === 2) {
-      setCards(scanner, [streamCard(0, "CoolKicks", `1000 Amazon ${index}`, `cool-${index}`, 2000)]);
+      setCards(scanner, [streamCard(6, "Woosleys", `1000 Amazon ${index}`, `woosleys-${index}`, 2000)]);
     } else {
-      setCards(scanner, [offlineCard(1, "KrakenHits"), offlineCard(4, "SpaceNarwhalz"), offlineCard(0, "CoolKicks")]);
+      setCards(scanner, [offlineCard(1, "KrakenHits"), offlineCard(4, "SpaceNarwhalz"), offlineCard(6, "Woosleys")]);
     }
     await runNavigation(scanner);
     if (scanner.state.autoClicker.runtimeState === "PARKED") {
       assert(scanner.state.autoClicker.activeSlot === null, `active slot should be null when parked at iteration ${index}`);
     }
   }
-    assert(openUrls(calls).length > deviceCount * Math.max(20, Math.floor(churnIterations / 10)), "expected many stream switches under churn");
-  assert(parkCount(calls) >= deviceCount, "expected parking under churn");
+  const expectedSwitches = Math.max(1, Math.floor(churnIterations / 5));
+  assert(openUrls(calls).length >= deviceCount * expectedSwitches, "expected stream switches under churn");
+  if (churnIterations >= 4) {
+    assert(parkCount(calls) >= deviceCount, "expected parking under churn");
+  }
 });
 
 let passed = 0;

@@ -1173,6 +1173,23 @@ export class BrowserService {
     const ended = /^(giveaway_ended|giveaway_cancelled|giveaway_canceled|giveaway_won|winner_selected)$/i.test(event);
 
     const payload = frame[4];
+    if (!ended && payload && typeof payload === "object") {
+      const record = payload as Record<string, unknown>;
+      const activeGiveaway = record.activeGiveaway ?? record.active_giveaway;
+      if (activeGiveaway && typeof activeGiveaway === "object") {
+        const activeFields = this.extractGiveawayFields(activeGiveaway, false);
+        if (activeFields.id || activeFields.name) {
+          return {
+            active: true,
+            giveawayId: activeFields.id,
+            giveawayName: activeFields.name,
+            source,
+            confidence: source === "WS_PRIMARY" ? 99 : 78,
+            updatedAt: new Date().toISOString()
+          };
+        }
+      }
+    }
     const extracted = this.extractGiveawayFields(payload, !activeEvent && !giveawayEvent);
     const hasGiveawayPayload = this.hasGiveawayPayload(payload);
     if (!activeEvent && !giveawayEvent && !ended && !hasGiveawayPayload) return null;
@@ -1212,7 +1229,7 @@ export class BrowserService {
 
       for (const [key, child] of Object.entries(record)) {
         const keyPath = [...path, key].join(".");
-        if (/(\b|_)(giveaway|giveaways)(\b|_|Id|ID)/i.test(keyPath)) {
+        if (/giveaway/i.test(keyPath)) {
           found = true;
           return;
         }
@@ -1320,6 +1337,12 @@ export class BrowserService {
         isGiveawayWonEvent ||
         looksLikeDirectGiveawayEvent;
       const preferredPaths = [
+        ["activeGiveaway", "product", "title"],
+        ["activeGiveaway", "product", "name"],
+        ["active_giveaway", "product", "title"],
+        ["active_giveaway", "product", "name"],
+        ["giveaway", "product", "title"],
+        ["giveaway", "product", "name"],
         ["item", "title"],
         ["item", "name"],
         ["product", "title"],
@@ -1895,8 +1918,15 @@ export class BrowserService {
           /\bendedAt\s*[:=]\s*["']?\d{4}-\d{2}-\d{2}/i.test(pageText) ||
           /\b(stream ended|show ended|not live|offline|upcoming|replay)\b/i.test(bodyText);
 
+        const hasMediaSignal = mediaElementCount > 0 || videoReady;
+        const verified =
+          ready &&
+          onExpectedPage &&
+          bodyText.trim().length > 0 &&
+          (!hasOfflineSignal || hasLiveSignal || hasMediaSignal);
+
         return {
-          verified: ready && onExpectedPage && bodyText.trim().length > 0 && !hasOfflineSignal,
+          verified,
           currentUrl,
           ready,
           onExpectedPage,

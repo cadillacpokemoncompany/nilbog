@@ -625,6 +625,9 @@ app.whenReady().then(async () => {
   scanner = new Scanner(snapshot, adb, browserService, resolver, store, () => mainWindow, (notification) =>
     notifier.sendAlert(notification.kind, notification.streamer, notification.detail)
   );
+  browserService.setGiveawayStateSink((streamId, state) => {
+    scanner?.applyGiveawayState(streamId, state);
+  });
   autoUpdater = new AutoUpdaterService({
     userDataPath: store.appDataDir,
     currentVersion: app.getVersion(),
