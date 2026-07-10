@@ -630,6 +630,19 @@ app.whenReady().then(async () => {
     currentVersion: app.getVersion(),
     logger: debugLog,
     canInstall: clickerIsStopped,
+    onHealth: async (patch) => {
+      await scanner.setState({
+        ...scanner.state,
+        autoClicker: {
+          ...scanner.state.autoClicker,
+          updateHealth: {
+            ...scanner.state.autoClicker.updateHealth,
+            currentVersion: app.getVersion(),
+            ...patch
+          }
+        }
+      }).catch((error) => debugLog("auto update health update failed", error));
+    },
     onStatus: async (message) => {
       await scanner.setState({
         ...scanner.state,

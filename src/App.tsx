@@ -64,7 +64,16 @@ const emptySnapshot: AppSnapshot = {
       lastTapOk: null,
       lastError: null
     },
-    deviceRuntime: []
+    deviceRuntime: [],
+    updateHealth: {
+      currentVersion: "0.1.8",
+      latestVersion: null,
+      status: "idle",
+      lastCheckedAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+      pendingInstaller: null
+    }
   },
   focusRouting: {
     watchDate: null,
@@ -285,6 +294,10 @@ export default function App() {
                 {snapshot.autoClicker.nextScanAt
                   ? formatLogTime(snapshot.autoClicker.nextScanAt)
                   : "Soon"}
+              </em>
+              <em>
+                Update {snapshot.autoClicker.updateHealth.status}
+                {snapshot.autoClicker.updateHealth.latestVersion ? ` ${snapshot.autoClicker.updateHealth.latestVersion}` : ""}
               </em>
             </section>
 

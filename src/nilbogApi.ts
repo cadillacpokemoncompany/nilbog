@@ -83,7 +83,16 @@ const createPreviewApi = () => {
         lastTapOk: null,
         lastError: null
       },
-      deviceRuntime: []
+      deviceRuntime: [],
+      updateHealth: {
+        currentVersion: "0.1.8",
+        latestVersion: null,
+        status: "idle",
+        lastCheckedAt: null,
+        lastSuccessAt: null,
+        lastError: null,
+        pendingInstaller: null
+      }
     },
     focusRouting: {
       watchDate: null,

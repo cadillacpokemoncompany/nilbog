@@ -107,6 +107,18 @@ export interface AdbHealth {
   lastError: string | null;
 }
 
+export type UpdateStatus = "idle" | "checking" | "current" | "available" | "downloaded" | "pending" | "installing" | "error" | "disabled";
+
+export interface UpdateHealth {
+  currentVersion: string;
+  latestVersion: string | null;
+  status: UpdateStatus;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  pendingInstaller: string | null;
+}
+
 export interface AutoClickerSettings {
   enabled: boolean;
   autoNavEnabled: boolean;
@@ -149,6 +161,7 @@ export interface AutoClickerSettings {
   };
   adbHealth: AdbHealth;
   deviceRuntime: DeviceRuntimeState[];
+  updateHealth: UpdateHealth;
 }
 
 export interface FocusRoutingState {

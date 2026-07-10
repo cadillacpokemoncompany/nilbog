@@ -113,7 +113,16 @@ const defaultSnapshot = (profilePath: string): AppSnapshot => ({
       lastTapOk: null,
       lastError: null
     },
-    deviceRuntime: []
+    deviceRuntime: [],
+    updateHealth: {
+      currentVersion: "0.1.8",
+      latestVersion: null,
+      status: "idle",
+      lastCheckedAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+      pendingInstaller: null
+    }
   },
   focusRouting: {
     watchDate: null,
@@ -203,7 +212,11 @@ const normalizeAutoClicker = (saved: Partial<AppSnapshot>["autoClicker"], profil
       ...defaults.adbHealth,
       ...saved?.adbHealth
     },
-    deviceRuntime: Array.isArray(saved?.deviceRuntime) ? saved.deviceRuntime : []
+    deviceRuntime: Array.isArray(saved?.deviceRuntime) ? saved.deviceRuntime : [],
+    updateHealth: {
+      ...defaults.updateHealth,
+      ...saved?.updateHealth
+    }
   };
 
   return {
