@@ -1,6 +1,6 @@
 {
   "name": "nilboglite",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Lite packaged desktop controller for ADB devices and Whatnot streams.",
   "main": "dist-electron/electron/main.js",
   "private": true,
@@ -58,6 +58,10 @@
       {
         "from": "C:/Users/curti/AppData/Local/ms-playwright",
         "to": "ms-playwright"
+      },
+      {
+        "from": "C:/Users/curti/AppData/Roaming/NilbogLite/nilbog-discord-webhook.txt",
+        "to": "discord/nilbog-discord-webhook.txt"
       }
     ],
     "win": {

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AdbService } from "./adbService.js";
@@ -53,8 +53,23 @@ const debugLog = async (message: string, error?: unknown) => {
   );
 };
 
-const readLocalDiscordWebhook = async (appDataDir: string): Promise<string> =>
-  (process.env.NILBOG_DISCORD_WEBHOOK ?? (await readFile(join(appDataDir, "nilbog-discord-webhook.txt"), "utf8").catch(() => ""))).trim();
+const readLocalDiscordWebhook = async (appDataDir: string): Promise<string> => {
+  const envWebhook = process.env.NILBOG_DISCORD_WEBHOOK?.trim();
+  if (envWebhook) return envWebhook;
+
+  const appDataWebhookPath = join(appDataDir, "nilbog-discord-webhook.txt");
+  const appDataWebhook = (await readFile(appDataWebhookPath, "utf8").catch(() => "")).trim();
+  if (appDataWebhook) return appDataWebhook;
+
+  const bundledWebhook = (
+    await readFile(join(process.resourcesPath ?? "", "discord", "nilbog-discord-webhook.txt"), "utf8").catch(() => "")
+  ).trim();
+  if (!bundledWebhook) return "";
+
+  await mkdir(appDataDir, { recursive: true }).catch(() => undefined);
+  await writeFile(appDataWebhookPath, bundledWebhook, "utf8").catch((error) => debugLog("discord webhook seed failed", error));
+  return bundledWebhook;
+};
 
 const createWindow = async () => {
   const { workArea } = screen.getPrimaryDisplay();
