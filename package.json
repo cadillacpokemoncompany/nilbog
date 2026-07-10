@@ -13,6 +13,7 @@
     "package:win": "npm run build && electron-builder",
     "package:dir": "npm run build && electron-builder --dir",
     "release:update": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-and-publish-update.ps1",
+    "release:github": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-github-release.ps1",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
