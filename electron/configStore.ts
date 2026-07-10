@@ -373,6 +373,7 @@ export class ConfigStore {
             currentItem: null,
             giveawayName: null,
             entryCount: null,
+            viewerCount: null,
             thumbnailImageDataUrl: null,
             streamPreviewImageDataUrl: null,
             lastResolvedAt: null,

@@ -22,6 +22,7 @@ export interface StreamCard {
   currentItem: string | null;
   giveawayName: string | null;
   entryCount: number | null;
+  viewerCount: number | null;
   thumbnailImageDataUrl: string | null;
   streamPreviewImageDataUrl: string | null;
   lastResolvedAt: string | null;
@@ -175,6 +176,7 @@ export const createEmptyCards = (): StreamCard[] =>
     currentItem: null,
     giveawayName: null,
     entryCount: null,
+    viewerCount: null,
     thumbnailImageDataUrl: null,
     streamPreviewImageDataUrl: null,
     lastResolvedAt: null,

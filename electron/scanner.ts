@@ -294,6 +294,7 @@ export class Scanner {
             currentItem: null,
             giveawayName: null,
             entryCount: null,
+            viewerCount: null,
             thumbnailImageDataUrl: card.thumbnailImageDataUrl,
             lastResolvedAt: new Date().toISOString()
           };
@@ -320,6 +321,7 @@ export class Scanner {
             currentItem: null,
             giveawayName: null,
             entryCount: null,
+            viewerCount: null,
             thumbnailImageDataUrl: card.thumbnailImageDataUrl,
             lastResolvedAt: new Date().toISOString()
           };
@@ -530,12 +532,13 @@ export class Scanner {
     ruleHits: AppSnapshot["autoClicker"]["ruleHits"];
   } {
     const liveCards = this.snapshot.cards.filter((card) => card.status === "live" && card.resolvedUrl && card.giveawayName);
-    let best: { card: StreamCard; score: number; ruleId: number; phrase: string; resolvedAtMs: number } | null = null;
+    let best: { card: StreamCard; score: number; ruleId: number; phrase: string; resolvedAtMs: number; viewerRank: number } | null = null;
     const ruleHits: AppSnapshot["autoClicker"]["ruleHits"] = [];
     const now = Date.now();
 
     for (const card of liveCards) {
       const resolvedAtMs = card.lastResolvedAt ? Date.parse(card.lastResolvedAt) : now;
+      const viewerRank = card.viewerCount === null || card.viewerCount === undefined ? Number.POSITIVE_INFINITY : card.viewerCount;
       const title = card.giveawayName?.toLowerCase() ?? "";
       const streamer = normalizeStreamerName(card.streamer);
       for (const rule of FIXED_AUTOPILOT_RULES) {
@@ -553,10 +556,11 @@ export class Scanner {
         if (
           !best ||
           rule.score > best.score ||
-          (rule.score === best.score && resolvedAtMs > best.resolvedAtMs) ||
-          (rule.score === best.score && resolvedAtMs === best.resolvedAtMs && card.slot < best.card.slot)
+          (rule.score === best.score && viewerRank < best.viewerRank) ||
+          (rule.score === best.score && viewerRank === best.viewerRank && resolvedAtMs > best.resolvedAtMs) ||
+          (rule.score === best.score && viewerRank === best.viewerRank && resolvedAtMs === best.resolvedAtMs && card.slot < best.card.slot)
         ) {
-          best = { card, score: rule.score, ruleId: rule.id, phrase, resolvedAtMs };
+          best = { card, score: rule.score, ruleId: rule.id, phrase, resolvedAtMs, viewerRank };
         }
       }
     }
@@ -575,7 +579,7 @@ export class Scanner {
       card: best.card,
       score: best.score,
       ruleId: best.ruleId,
-      detail: `${best.card.streamer}: ${best.phrase} +${best.score}`,
+      detail: `${best.card.streamer}: ${best.phrase} +${best.score}${best.card.viewerCount !== null && best.card.viewerCount !== undefined ? ` (${best.card.viewerCount} viewers)` : ""}`,
       ruleHits
     };
   }
