@@ -1,0 +1,75 @@
+{
+  "name": "nilboglite",
+  "version": "0.1.5",
+  "description": "Lite packaged desktop controller for ADB devices and Whatnot streams.",
+  "main": "dist-electron/electron/main.js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsc -p tsconfig.json && concurrently -k \"vite --host 127.0.0.1 --port 5187 --strictPort\" \"wait-on tcp:5187 && electron .\"",
+    "stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
+    "restart": "npm run stop; npm run dev",
+    "build": "tsc -p tsconfig.json && vite build",
+    "package:win": "npm run build && electron-builder",
+    "package:dir": "npm run build && electron-builder --dir",
+    "release:update": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-and-publish-update.ps1",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "lucide-react": "^0.468.0",
+    "playwright": "^1.49.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.nilbog.lite",
+    "productName": "NilbogLite",
+    "directories": {
+      "output": "../../outputs/NilbogLite"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "electron/preload.cjs",
+      "adb.exe",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "C:/Users/curti/OneDrive/Desktop/platform-tools",
+        "to": "platform-tools"
+      },
+      {
+        "from": "C:/Users/curti/.cache/codex-runtimes/codex-primary-runtime/dependencies/python",
+        "to": "python"
+      },
+      {
+        "from": "C:/Users/curti/AppData/Local/ms-playwright",
+        "to": "ms-playwright"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

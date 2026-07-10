@@ -1,0 +1,26 @@
+node_modules/
+dist/
+dist-electron/
+*.log
+*.err.log
+*.out.log
+.vite/
+
+# Build outputs and installers
+outputs/
+release/
+*.exe
+*.blockmap
+
+# Local app/runtime data
+nilbog-config.json
+locked-streamers.json
+keyword-scoring.json
+nilbog-discord-webhook.txt
+nilbog-update-source.txt
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
