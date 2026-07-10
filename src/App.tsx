@@ -63,7 +63,8 @@ const emptySnapshot: AppSnapshot = {
       lastEnteredSlot: null,
       lastTapOk: null,
       lastError: null
-    }
+    },
+    deviceRuntime: []
   },
   focusRouting: {
     watchDate: null,
@@ -179,6 +180,13 @@ export default function App() {
   };
   const clickerRunning = snapshot.autoClicker.enabled || snapshot.autoClicker.autoNavEnabled;
   const hasSelectedClickerProfile = snapshot.autoClicker.selectedProfile === "2024" || snapshot.autoClicker.selectedProfile === "2025";
+  const deviceRuntimeSummary = useMemo(() => {
+    const runtime = snapshot.autoClicker.deviceRuntime;
+    const ready = runtime.filter((device) => device.status === "connected" && device.phase !== "failed").length;
+    const failed = runtime.filter((device) => device.phase === "failed" || Boolean(device.lastError)).length;
+    const active = runtime.filter((device) => device.phase === "routing" || device.phase === "on_stream" || device.phase === "clicking").length;
+    return { ready, failed, active };
+  }, [snapshot.autoClicker.deviceRuntime]);
   const normalizeStreamer = (value: string) => value.trim().replace(/^@/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const evaluateTitle = (streamer: string, title: string) => {
     const normalizedStreamer = normalizeStreamer(streamer);
@@ -298,7 +306,9 @@ export default function App() {
               <em>
                 {snapshot.autoClicker.adbHealth.unauthorized} unauthorized | {snapshot.autoClicker.adbHealth.offline} offline
               </em>
-              <em>{snapshot.autoClicker.adbHealth.lastError || snapshot.autoClicker.lastAction || "No action yet"}</em>
+              <em>
+                {deviceRuntimeSummary.active} active | {deviceRuntimeSummary.ready} ready | {deviceRuntimeSummary.failed} failed
+              </em>
             </section>
           </div>
         </aside>

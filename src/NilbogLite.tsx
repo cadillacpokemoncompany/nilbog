@@ -57,7 +57,8 @@ const emptySnapshot: AppSnapshot = {
       lastEnteredSlot: null,
       lastTapOk: null,
       lastError: null
-    }
+    },
+    deviceRuntime: []
   },
   focusRouting: {
     watchDate: null,

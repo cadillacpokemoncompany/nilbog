@@ -82,7 +82,8 @@ const createPreviewApi = () => {
         lastEnteredSlot: null,
         lastTapOk: null,
         lastError: null
-      }
+      },
+      deviceRuntime: []
     },
     focusRouting: {
       watchDate: null,

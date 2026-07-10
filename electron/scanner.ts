@@ -3,7 +3,7 @@ import { AdbService } from "./adbService.js";
 import { BrowserService } from "./browserService.js";
 import { ConfigStore } from "./configStore.js";
 import { WhatnotResolver } from "./whatnotResolver.js";
-import type { AdbDevice, AppSnapshot, FollowingFeedLiveStream, GiveawayState, StreamCard } from "./types.js";
+import type { AdbDevice, AppSnapshot, DeviceRuntimeState, FollowingFeedLiveStream, GiveawayState, StreamCard } from "./types.js";
 
 export type RuntimeNotification = {
   kind: "navigation" | "parking";
@@ -48,6 +48,46 @@ const cleanGiveawayName = (value: string | null | undefined): string | null => {
   if (/^(new|used|sealed|ship only|rip only|rip or ship)$/i.test(normalized)) return null;
   if (/^\d+\s*-\s*#\d+\b/i.test(normalized)) return null;
   return normalized;
+};
+
+const mergeDeviceRuntime = (
+  devices: AdbDevice[],
+  previous: DeviceRuntimeState[],
+  nowIso: string
+): DeviceRuntimeState[] => {
+  const previousById = new Map(previous.map((device) => [device.id, device]));
+  const seenIds = new Set(devices.map((device) => device.id));
+  const active = devices.map((device) => {
+    const saved = previousById.get(device.id);
+    return {
+      id: device.id,
+      label: device.label,
+      status: device.status,
+      selected: device.selected,
+      phase:
+        device.status === "connected"
+          ? (saved?.phase && !["offline", "unauthorized", "unknown"].includes(saved.phase) ? saved.phase : "connected")
+          : device.status,
+      targetStreamer: saved?.targetStreamer ?? null,
+      targetUrl: saved?.targetUrl ?? null,
+      lastSeenAt: nowIso,
+      lastActionAt: saved?.lastActionAt ?? null,
+      lastAction: saved?.lastAction ?? null,
+      lastError: device.status === "connected" ? saved?.lastError ?? null : device.status
+    } satisfies DeviceRuntimeState;
+  });
+
+  const disappeared = previous
+    .filter((device) => !seenIds.has(device.id))
+    .map((device) => ({
+      ...device,
+      status: "offline" as const,
+      selected: false,
+      phase: "offline" as const,
+      lastError: "not listed by adb"
+    }));
+
+  return [...active, ...disappeared].sort((left, right) => left.label.localeCompare(right.label));
 };
 
 const easternDateAndHour = (date = new Date()): { dateKey: string; hour: number } => {
@@ -365,6 +405,7 @@ export class Scanner {
       };
     });
 
+      const snapshotAt = new Date().toISOString();
       this.snapshot = {
       ...this.snapshot,
       devices,
@@ -378,7 +419,8 @@ export class Scanner {
           unauthorized: devices.filter((device) => device.status === "unauthorized").length,
           offline: devices.filter((device) => device.status === "offline").length,
           selectedConnected: devices.filter((device) => device.selected && device.status === "connected").length
-        }
+        },
+        deviceRuntime: mergeDeviceRuntime(devices, this.snapshot.autoClicker.deviceRuntime, snapshotAt)
       },
       browser: {
         ...this.snapshot.browser,
@@ -396,7 +438,7 @@ export class Scanner {
       },
       scanner: {
         running: true,
-        lastTickAt: new Date().toISOString()
+        lastTickAt: snapshotAt
       }
     };
       this.updateFocusRouting(baseCards);

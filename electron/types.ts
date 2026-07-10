@@ -7,6 +7,32 @@ export interface AdbDevice {
   selected: boolean;
 }
 
+export type DeviceRuntimePhase =
+  | "connected"
+  | "offline"
+  | "unauthorized"
+  | "routing"
+  | "on_stream"
+  | "clicking"
+  | "parked"
+  | "home"
+  | "failed"
+  | "unknown";
+
+export interface DeviceRuntimeState {
+  id: string;
+  label: string;
+  status: DeviceStatus;
+  selected: boolean;
+  phase: DeviceRuntimePhase;
+  targetStreamer: string | null;
+  targetUrl: string | null;
+  lastSeenAt: string;
+  lastActionAt: string | null;
+  lastAction: string | null;
+  lastError: string | null;
+}
+
 export type StreamStatus = "empty" | "resolving" | "offline" | "live" | "unknown" | "error";
 
 export interface StreamCard {
@@ -122,6 +148,7 @@ export interface AutoClickerSettings {
     enteredGiveaway: ActivityLogEntry[];
   };
   adbHealth: AdbHealth;
+  deviceRuntime: DeviceRuntimeState[];
 }
 
 export interface FocusRoutingState {
