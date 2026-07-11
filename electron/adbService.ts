@@ -541,7 +541,7 @@ export class AdbService {
     await this.shell(deviceId, ["am", "force-stop", whatnotPackage]).catch(() => undefined);
   }
 
-  async parkWhatnotOnHome(deviceId: string, profile: "2024" | "2025" | null = null): Promise<{ foregroundPackage: string | null }> {
+  async parkWhatnotOnHome(deviceId: string): Promise<{ foregroundPackage: string | null }> {
     await this.prepareControlDisplay(deviceId);
     await this.shell(deviceId, ["am", "force-stop", whatnotPackage]).catch(() => undefined);
     await this.shell(deviceId, ["am", "kill", whatnotPackage]).catch(() => undefined);

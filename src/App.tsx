@@ -4,9 +4,6 @@ import { createDefaultKeywordRules, type AppSnapshot, type StreamCard } from "..
 import { nilbogApi } from "./nilbogApi";
 import "./styles/app.css";
 
-type ClickerProfileName = "2024" | "2025";
-
-const clickerProfiles: ClickerProfileName[] = ["2025", "2024"];
 const focusStreamers = ["KrakenHits", "NovaTCG", "RosesCloset", "SpaceNarwhalz", "VendturesVault", "WestCoastCards", "Woosleys"];
 const normalizeFocusStreamer = (value: string) => value.trim().replace(/^@/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -21,21 +18,6 @@ const emptySnapshot: AppSnapshot = {
     jitterMs: 0,
     targetX: 0,
     targetY: 0,
-    selectedProfile: null,
-    profiles: {
-      "2024": {
-        targetX: 580,
-        targetY: 305,
-        intervalMs: 3000,
-        jitterMs: 0
-      },
-      "2025": {
-        targetX: 580,
-        targetY: 280,
-        intervalMs: 3000,
-        jitterMs: 0
-      }
-    },
     activeSlot: null,
     parkCooldownMs: 120000,
     maxMatchAgeMs: 120000,
@@ -135,29 +117,18 @@ const ensureFocusCards = (cards: StreamCard[]): StreamCard[] => {
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot);
-  const [profileDrafts, setProfileDrafts] = useState<Record<ClickerProfileName, { x: string; y: string; sec: string }>>({
-    "2024": { x: "580", y: "305", sec: "0" },
-    "2025": { x: "580", y: "280", sec: "3" }
-  });
+  const [clickerDraft, setClickerDraft] = useState({ x: "580", y: "280", sec: "3" });
   useEffect(() => {
     void nilbogApi.getSnapshot().then(setSnapshot);
     return nilbogApi.onSnapshot(setSnapshot);
   }, []);
   useEffect(() => {
-    setProfileDrafts((current) => {
-      const next = { ...current };
-      for (const profileName of clickerProfiles) {
-        const profile = snapshot.autoClicker.profiles[profileName];
-        const seconds = Number((profile.intervalMs / 1000).toFixed(1));
-        next[profileName] = {
-          x: String(profile.targetX),
-          y: String(profile.targetY),
-          sec: String(seconds)
-        };
-      }
-      return next;
+    setClickerDraft({
+      x: String(snapshot.autoClicker.targetX || 580),
+      y: String(snapshot.autoClicker.targetY || 280),
+      sec: String(Number(((snapshot.autoClicker.intervalMs || 3000) / 1000).toFixed(1)))
     });
-  }, [snapshot.autoClicker.profiles]);
+  }, [snapshot.autoClicker.targetX, snapshot.autoClicker.targetY, snapshot.autoClicker.intervalMs]);
   useEffect(() => {
     return nilbogApi.onStreamPreviewFrame((frame) => {
       setSnapshot((current) => ({
@@ -188,7 +159,7 @@ export default function App() {
     );
   };
   const clickerRunning = snapshot.autoClicker.enabled || snapshot.autoClicker.autoNavEnabled;
-  const hasSelectedClickerProfile = snapshot.autoClicker.selectedProfile === "2024" || snapshot.autoClicker.selectedProfile === "2025";
+  const hasClickerSettings = snapshot.autoClicker.targetX > 0 && snapshot.autoClicker.targetY > 0 && snapshot.autoClicker.intervalMs > 0;
   const deviceRuntimeSummary = useMemo(() => {
     const runtime = snapshot.autoClicker.deviceRuntime;
     const ready = runtime.filter((device) => device.status === "connected" && device.phase !== "failed").length;
@@ -237,11 +208,10 @@ export default function App() {
       ),
     [displayCards]
   );
-  const draftToProfile = (profileName: ClickerProfileName) => {
-    const draft = profileDrafts[profileName];
-    const targetX = Number(draft.x);
-    const targetY = Number(draft.y);
-    const seconds = Number(draft.sec);
+  const draftToSettings = () => {
+    const targetX = Number(clickerDraft.x);
+    const targetY = Number(clickerDraft.y);
+    const seconds = Number(clickerDraft.sec);
     const intervalMs = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds * 1000)) : 0;
     return {
       targetX: Number.isFinite(targetX) ? targetX : 0,
@@ -250,27 +220,13 @@ export default function App() {
       jitterMs: 0
     };
   };
-  const saveAndSelectClickerProfile = (profileName: ClickerProfileName) => {
-    const profile = draftToProfile(profileName);
-    updateAutoClicker({
-      selectedProfile: profileName,
-      profiles: {
-        ...snapshot.autoClicker.profiles,
-        [profileName]: profile
-      },
-      ...profile
-    });
+  const saveClickerSettings = () => {
+    updateAutoClicker(draftToSettings());
   };
-  const selectClickerProfile = (profileName: ClickerProfileName) => {
-    saveAndSelectClickerProfile(profileName);
-  };
-  const updateProfileDraft = (profileName: ClickerProfileName, key: "x" | "y" | "sec", value: string) => {
-    setProfileDrafts((current) => ({
+  const updateClickerDraft = (key: "x" | "y" | "sec", value: string) => {
+    setClickerDraft((current) => ({
       ...current,
-      [profileName]: {
-        ...current[profileName],
-        [key]: value
-      }
+      [key]: value
     }));
   };
 
@@ -334,42 +290,33 @@ export default function App() {
           </div>
 
           <div className="clicker-profile-stack">
-            {clickerProfiles.map((profileName) => (
-              <div className="clicker-profile-column" key={profileName}>
-                <button
-                  className={`profile-select-button ${snapshot.autoClicker.selectedProfile === profileName ? "is-selected" : ""}`}
-                  onClick={() => selectClickerProfile(profileName)}
-                  title={`Use ${profileName} phone coordinates`}
-                >
-                  {profileName}
-                </button>
-                <input
-                  inputMode="numeric"
-                  value={profileDrafts[profileName].x}
-                  onBlur={() => saveAndSelectClickerProfile(profileName)}
-                  onChange={(event) => updateProfileDraft(profileName, "x", event.target.value)}
-                />
-                <input
-                  inputMode="numeric"
-                  value={profileDrafts[profileName].y}
-                  onBlur={() => saveAndSelectClickerProfile(profileName)}
-                  onChange={(event) => updateProfileDraft(profileName, "y", event.target.value)}
-                />
-                <input
-                  inputMode="decimal"
-                  value={profileDrafts[profileName].sec}
-                  onBlur={() => saveAndSelectClickerProfile(profileName)}
-                  onChange={(event) => updateProfileDraft(profileName, "sec", event.target.value)}
-                />
-              </div>
-            ))}
+            <div className="clicker-profile-column is-single">
+              <input
+                inputMode="numeric"
+                value={clickerDraft.x}
+                onBlur={saveClickerSettings}
+                onChange={(event) => updateClickerDraft("x", event.target.value)}
+              />
+              <input
+                inputMode="numeric"
+                value={clickerDraft.y}
+                onBlur={saveClickerSettings}
+                onChange={(event) => updateClickerDraft("y", event.target.value)}
+              />
+              <input
+                inputMode="decimal"
+                value={clickerDraft.sec}
+                onBlur={saveClickerSettings}
+                onChange={(event) => updateClickerDraft("sec", event.target.value)}
+              />
+            </div>
           </div>
 
           <div className="autoclicker-actions">
             <button
               className="auto-button start-button"
-              disabled={clickerRunning || !hasSelectedClickerProfile}
-              onClick={() => updateAutoClicker({ enabled: true, autoNavEnabled: true })}
+              disabled={clickerRunning || !hasClickerSettings}
+              onClick={() => updateAutoClicker({ ...draftToSettings(), enabled: true, autoNavEnabled: true })}
               title="Start autoplay"
             >
               <Play size={14} />

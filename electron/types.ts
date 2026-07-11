@@ -127,21 +127,6 @@ export interface AutoClickerSettings {
   jitterMs: number;
   targetX: number;
   targetY: number;
-  selectedProfile: "2024" | "2025" | null;
-  profiles: {
-    "2024": {
-      targetX: number;
-      targetY: number;
-      intervalMs: number;
-      jitterMs: number;
-    };
-    "2025": {
-      targetX: number;
-      targetY: number;
-      intervalMs: number;
-      jitterMs: number;
-    };
-  };
   activeSlot: number | null;
   parkCooldownMs: number;
   maxMatchAgeMs: number;

@@ -40,21 +40,6 @@ const createPreviewApi = () => {
       jitterMs: 0,
       targetX: 0,
       targetY: 0,
-      selectedProfile: null,
-      profiles: {
-      "2024": {
-        targetX: 580,
-        targetY: 305,
-        intervalMs: 3000,
-        jitterMs: 0
-      },
-      "2025": {
-        targetX: 580,
-        targetY: 280,
-        intervalMs: 3000,
-        jitterMs: 0
-      }
-      },
       activeSlot: null,
       parkCooldownMs: 120000,
       maxMatchAgeMs: 120000,

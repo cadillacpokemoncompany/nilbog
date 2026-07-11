@@ -18,7 +18,6 @@ const DECK_COLUMNS = 12;
 const DECK_PADDING = 18;
 const DECK_GAP_TOTAL = 80;
 const DECK_HEIGHT_RATIO = 1.5;
-const KRAKEN_SLOT = 0;
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
@@ -156,34 +155,8 @@ const stopWinnerWatcherLoop = () => {
 
 const clickerIsStopped = (): boolean => !scanner?.state.autoClicker.enabled && !scanner?.state.autoClicker.autoNavEnabled;
 
-const applySelectedClickerProfile = (autoClicker: AppSnapshot["autoClicker"]): AppSnapshot["autoClicker"] => {
-  const selectedProfile = autoClicker.selectedProfile;
-  if (selectedProfile !== "2024" && selectedProfile !== "2025") {
-    return {
-      ...autoClicker,
-      enabled: false,
-      autoNavEnabled: false,
-      targetX: 0,
-      targetY: 0,
-      intervalMs: 0,
-      jitterMs: 0
-    };
-  }
-
-  const profile = autoClicker.profiles[selectedProfile];
-  return {
-    ...autoClicker,
-    targetX: profile.targetX,
-    targetY: profile.targetY,
-    intervalMs: profile.intervalMs,
-    jitterMs: profile.jitterMs
-  };
-};
-
-const hasSelectedClickerProfile = () =>
-  scanner.state.autoClicker.selectedProfile === "2024" || scanner.state.autoClicker.selectedProfile === "2025";
-
-const isKrakenOnlyClickerMode = (autoClicker = scanner.state.autoClicker): boolean => autoClicker.selectedProfile === "2024";
+const hasClickerSettings = () =>
+  scanner.state.autoClicker.targetX > 0 && scanner.state.autoClicker.targetY > 0 && scanner.state.autoClicker.intervalMs > 0;
 
 const isHomePackage = (packageName: string | null): boolean => {
   if (!packageName) return false;
@@ -374,8 +347,8 @@ const startAutoClickerLoop = () => {
       stopAutoClickerLoop();
       return;
     }
-    if (!hasSelectedClickerProfile()) {
-      await debugLog("autoclicker tick skipped: no clicker profile selected");
+    if (!hasClickerSettings()) {
+      await debugLog("autoclicker tick skipped: clicker settings are not saved");
       stopAutoClickerLoop();
       await scanner.setState({
         ...scanner.state,
@@ -388,17 +361,13 @@ const startAutoClickerLoop = () => {
       return;
     }
 
-    const targetSlot = isKrakenOnlyClickerMode() ? KRAKEN_SLOT : scanner.state.autoClicker.activeSlot;
+    const targetSlot = scanner.state.autoClicker.activeSlot;
     const card =
       targetSlot === null
         ? null
         : scanner.state.cards.find((candidate) => candidate.slot === targetSlot && candidate.status === "live" && candidate.resolvedUrl);
     if (!card) {
-      await debugLog(
-        isKrakenOnlyClickerMode()
-          ? "autoclicker tick skipped: KrakenHits is not live/resolved for 2024 coord-only mode"
-          : "autoclicker tick skipped: no scored active stream target"
-      );
+      await debugLog("autoclicker tick skipped: no scored active stream target");
       autoClickerTimer = setTimeout(runClick, nextClickDelayMs());
       return;
     }
@@ -454,7 +423,7 @@ const startAutoClickerWatchdogLoop = () => {
     if (shutdownStarted) return;
     if (autoClickerTimer) return;
     if (!scanner.state.autoClicker.enabled) return;
-    if (!hasSelectedClickerProfile()) return;
+    if (!hasClickerSettings()) return;
     void debugLog("autoclicker watchdog restarted missing tap timer");
     startAutoClickerLoop();
   }, 2_000);
@@ -488,7 +457,7 @@ const startDeviceWatcherLoop = () => {
           }
 
           if (foregroundPackage === whatnotPackage) {
-            await adb.parkWhatnotOnHome(device.id, scanner.state.autoClicker.selectedProfile);
+            await adb.parkWhatnotOnHome(device.id);
             await debugLog(`device watcher parked Whatnot device=${device.id}`);
             return;
           }
@@ -754,33 +723,23 @@ app.whenReady().then(async () => {
     return scanner.state;
   });
   ipcMain.handle("autoclicker:update", async (_event, patch) => {
-    let nextAutoClicker = applySelectedClickerProfile({ ...scanner.state.autoClicker, ...patch });
-    if (patch?.selectedProfile === "2024" || patch?.selectedProfile === "2025") {
-      nextAutoClicker.enabled = true;
-      nextAutoClicker.autoNavEnabled = patch.selectedProfile === "2025";
-      nextAutoClicker.activeSlot = patch.selectedProfile === "2024" ? KRAKEN_SLOT : nextAutoClicker.activeSlot;
-    }
+    let nextAutoClicker = {
+      ...scanner.state.autoClicker,
+      ...patch,
+      jitterMs: 0
+    };
     if (patch?.autoNavEnabled === true) nextAutoClicker.enabled = true;
     if (patch?.autoNavEnabled === false && patch?.enabled === undefined) nextAutoClicker.enabled = false;
     if (patch?.enabled === true) {
-      nextAutoClicker.autoNavEnabled = nextAutoClicker.selectedProfile === "2025";
-      nextAutoClicker.activeSlot = nextAutoClicker.selectedProfile === "2024" ? KRAKEN_SLOT : nextAutoClicker.activeSlot;
-    }
-    nextAutoClicker = applySelectedClickerProfile(nextAutoClicker);
-    if (nextAutoClicker.selectedProfile === "2024") {
-      nextAutoClicker = {
-        ...nextAutoClicker,
-        autoNavEnabled: false,
-        activeSlot: KRAKEN_SLOT
-      };
+      nextAutoClicker.autoNavEnabled = true;
     }
     await scanner.setState({
       ...scanner.state,
       autoClicker: nextAutoClicker
     });
     if (patch?.enabled === true || patch?.autoNavEnabled === true) {
-      if (!hasSelectedClickerProfile()) {
-        await debugLog("autoclicker start blocked: no clicker profile selected");
+      if (!hasClickerSettings()) {
+        await debugLog("autoclicker start blocked: clicker settings are not saved");
         return scanner.state;
       }
       await debugLog(`autoclicker start activeSlot=${scanner.state.autoClicker.activeSlot ?? "auto"}`);
@@ -858,36 +817,22 @@ app.whenReady().then(async () => {
   startDeviceWatcherLoop();
   startWinnerWatcherLoop();
   autoUpdater.start();
-  if (hasSelectedClickerProfile()) {
-    const nextAutoClicker = applySelectedClickerProfile({
-      ...scanner.state.autoClicker,
-      enabled: true,
-      autoNavEnabled: scanner.state.autoClicker.selectedProfile === "2025",
-      activeSlot: scanner.state.autoClicker.selectedProfile === "2024" ? KRAKEN_SLOT : scanner.state.autoClicker.activeSlot
-    });
-    await scanner.setState({
-      ...scanner.state,
-      autoClicker: nextAutoClicker
-    });
-    await debugLog(`autoclicker start activeSlot=${scanner.state.autoClicker.activeSlot ?? "auto"} source=profile`);
-    startAutoClickerLoop();
-  }
   if (process.env.NILBOG_AUTOPILOT_ONCE === "1") {
-    const nextAutoClicker = applySelectedClickerProfile({
+    const nextAutoClicker = {
       ...scanner.state.autoClicker,
       enabled: true,
-      autoNavEnabled: scanner.state.autoClicker.selectedProfile === "2025",
-      activeSlot: scanner.state.autoClicker.selectedProfile === "2024" ? KRAKEN_SLOT : scanner.state.autoClicker.activeSlot
-    });
+      autoNavEnabled: true,
+      jitterMs: 0
+    };
     await scanner.setState({
       ...scanner.state,
       autoClicker: nextAutoClicker
     });
-    if (hasSelectedClickerProfile()) {
+    if (hasClickerSettings()) {
       await debugLog(`autoclicker start activeSlot=${scanner.state.autoClicker.activeSlot ?? "auto"} source=env`);
       startAutoClickerLoop();
     } else {
-      await debugLog("autoclicker env start blocked: no clicker profile selected");
+      await debugLog("autoclicker env start blocked: clicker settings are not saved");
     }
   }
   void (async () => {

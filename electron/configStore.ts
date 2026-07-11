@@ -70,21 +70,6 @@ const defaultSnapshot = (profilePath: string): AppSnapshot => ({
     jitterMs: 0,
     targetX: 580,
     targetY: 280,
-    selectedProfile: null,
-    profiles: {
-      "2024": {
-        targetX: 580,
-        targetY: 305,
-        intervalMs: 3000,
-        jitterMs: 0
-      },
-      "2025": {
-        targetX: 580,
-        targetY: 280,
-        intervalMs: 3000,
-        jitterMs: 0
-      }
-    },
     activeSlot: null,
     parkCooldownMs: 120_000,
     maxMatchAgeMs: 120_000,
@@ -162,36 +147,35 @@ const normalizeKeywordRules = (rules: KeywordScoreRule[] | undefined): KeywordSc
 
 const normalizeAutoClicker = (saved: Partial<AppSnapshot>["autoClicker"], profilePath: string): AppSnapshot["autoClicker"] => {
   const defaults = defaultSnapshot(profilePath).autoClicker;
-  const profile2024 = saved?.profiles?.["2024"];
-  const profile2025 = saved?.profiles?.["2025"];
-  const normalizeProfile = (
-    savedProfile: Partial<AppSnapshot["autoClicker"]["profiles"]["2024"]> | undefined,
-    fallback: AppSnapshot["autoClicker"]["profiles"]["2024"]
-  ) => ({
-    targetX: Number.isFinite(savedProfile?.targetX) ? Number(savedProfile?.targetX) : fallback.targetX,
-    targetY: Number.isFinite(savedProfile?.targetY) ? Number(savedProfile?.targetY) : fallback.targetY,
-    intervalMs: Number.isFinite(savedProfile?.intervalMs) && Number(savedProfile?.intervalMs) > 0 ? Number(savedProfile?.intervalMs) : fallback.intervalMs,
-    jitterMs: 0
-  });
-  const profiles = {
-    "2024": normalizeProfile(profile2024, defaults.profiles["2024"]),
-    "2025": normalizeProfile(profile2025, {
-      targetX: Number.isFinite(saved?.targetX) && saved!.targetX > 0 ? saved!.targetX : defaults.profiles["2025"].targetX,
-      targetY: Number.isFinite(saved?.targetY) && saved!.targetY > 0 ? saved!.targetY : defaults.profiles["2025"].targetY,
-      intervalMs: Number.isFinite(saved?.intervalMs) && saved!.intervalMs > 0 ? saved!.intervalMs : defaults.profiles["2025"].intervalMs,
-      jitterMs: 0
-    })
-  };
-  const selectedProfile = saved?.selectedProfile === "2024" || saved?.selectedProfile === "2025" ? saved.selectedProfile : null;
-  const activeProfile = selectedProfile ? profiles[selectedProfile] : null;
+  const legacyProfiles = (saved as Partial<AppSnapshot["autoClicker"]> & {
+    profiles?: Record<string, Partial<Pick<AppSnapshot["autoClicker"], "targetX" | "targetY" | "intervalMs" | "jitterMs">>>;
+  })?.profiles;
+  const legacy2025 = legacyProfiles?.["2025"];
+  const targetX = Number.isFinite(saved?.targetX) && saved!.targetX > 0
+    ? Number(saved!.targetX)
+    : Number.isFinite(legacy2025?.targetX) && Number(legacy2025?.targetX) > 0
+      ? Number(legacy2025?.targetX)
+      : defaults.targetX;
+  const targetY = Number.isFinite(saved?.targetY) && saved!.targetY > 0
+    ? Number(saved!.targetY)
+    : Number.isFinite(legacy2025?.targetY) && Number(legacy2025?.targetY) > 0
+      ? Number(legacy2025?.targetY)
+      : defaults.targetY;
+  const intervalMs = Number.isFinite(saved?.intervalMs) && saved!.intervalMs > 0
+    ? Number(saved!.intervalMs)
+    : Number.isFinite(legacy2025?.intervalMs) && Number(legacy2025?.intervalMs) > 0
+      ? Number(legacy2025?.intervalMs)
+      : defaults.intervalMs;
   const merged = {
     ...defaults,
     ...saved,
     enabled: false,
     autoNavEnabled: false,
     dryRun: Boolean(saved?.dryRun),
-    selectedProfile,
-    profiles,
+    targetX,
+    targetY,
+    intervalMs,
+    jitterMs: 0,
     parkCooldownMs: Number.isFinite(saved?.parkCooldownMs) ? Number(saved?.parkCooldownMs) : defaults.parkCooldownMs,
     maxMatchAgeMs: Number.isFinite(saved?.maxMatchAgeMs) ? Number(saved?.maxMatchAgeMs) : defaults.maxMatchAgeMs,
     lastParkedAt: saved?.lastParkedAt ?? null,
@@ -221,10 +205,10 @@ const normalizeAutoClicker = (saved: Partial<AppSnapshot>["autoClicker"], profil
 
   return {
     ...merged,
-    targetX: activeProfile ? activeProfile.targetX : 0,
-    targetY: activeProfile ? activeProfile.targetY : 0,
-    intervalMs: activeProfile ? activeProfile.intervalMs : 0,
-    jitterMs: activeProfile ? activeProfile.jitterMs : 0
+    targetX,
+    targetY,
+    intervalMs,
+    jitterMs: 0
   };
 };
 

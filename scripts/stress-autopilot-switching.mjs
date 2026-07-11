@@ -35,11 +35,6 @@ const makeSnapshot = () => ({
     jitterMs: 0,
     targetX: 580,
     targetY: 305,
-    selectedProfile: "2025",
-    profiles: {
-      "2024": { targetX: 580, targetY: 305, intervalMs: 3000, jitterMs: 0 },
-      "2025": { targetX: 580, targetY: 280, intervalMs: 3000, jitterMs: 0 }
-    },
     activeSlot: null,
     parkCooldownMs: 120000,
     maxMatchAgeMs: 120000,

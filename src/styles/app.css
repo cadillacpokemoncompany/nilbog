@@ -785,7 +785,7 @@ input[type="number"]::-webkit-outer-spin-button {
 
 .clicker-profile-stack {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   margin-top: auto;
   margin-bottom: 4px;
@@ -797,27 +797,6 @@ input[type="number"]::-webkit-outer-spin-button {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-}
-
-.profile-select-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  color: #f7fbff;
-  background: rgba(92, 101, 112, 0.92);
-  padding: 0;
-  font-size: 8px;
-  font-weight: 850;
-  cursor: pointer;
-}
-
-.profile-select-button.is-selected {
-  border-color: rgba(56, 217, 130, 0.72);
-  background: rgba(44, 145, 94, 0.94);
-  box-shadow: 0 0 0 1px rgba(56, 217, 130, 0.2), 0 0 10px rgba(56, 217, 130, 0.2);
 }
 
 .clicker-profile-column input {

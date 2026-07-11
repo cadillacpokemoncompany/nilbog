@@ -490,23 +490,6 @@ export class Scanner {
   private async navigateAutoTarget(devices: AdbDevice[]): Promise<void> {
     const decision = this.pickScoredAutopilotTarget();
 
-    if (this.snapshot.autoClicker.enabled && this.snapshot.autoClicker.selectedProfile === "2024") {
-      this.lastAutoNavKey = null;
-      this.snapshot = {
-        ...this.snapshot,
-        autoClicker: {
-          ...this.snapshot.autoClicker,
-          activeSlot: 0
-        }
-      };
-      this.updateRuntime("READY", "2024 KrakenHits coord-click mode", {
-        ruleId: null,
-        score: null,
-        ruleHits: decision.ruleHits
-      });
-      return;
-    }
-
     if (!this.snapshot.autoClicker.enabled || !this.snapshot.autoClicker.autoNavEnabled) {
       this.lastAutoNavKey = null;
       this.updateRuntime("OFF", decision.ruleHits.length ? "Match found, autoplay off" : "Autopilot is off", decision);
@@ -524,7 +507,7 @@ export class Scanner {
       const shouldPark = Boolean(nextKey);
       if (shouldPark && !this.snapshot.autoClicker.dryRun) {
         const parkResults = await Promise.allSettled(
-          connectedDevices.map((device) => this.adb.parkWhatnotOnHome(device.id, this.snapshot.autoClicker.selectedProfile))
+          connectedDevices.map((device) => this.adb.parkWhatnotOnHome(device.id))
         );
         const parkedCount = parkResults.filter((result) => result.status === "fulfilled").length;
         if (!wasAlreadyParked) {
