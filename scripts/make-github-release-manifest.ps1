@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$OutputDir = "C:\outputs\NilbogLite"
 )
 
@@ -7,8 +7,9 @@ $ErrorActionPreference = "Stop"
 $repoDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $packageJson = Get-Content -LiteralPath (Join-Path $repoDir "package.json") -Raw | ConvertFrom-Json
 $version = [string]$packageJson.version
-$installerName = "NilbogLite Setup $version.exe"
-$installerPath = Join-Path $OutputDir $installerName
+$sourceInstallerName = "NilbogLite Setup $version.exe"
+$installerName = "NilbogLite.Setup.$version.exe"
+$installerPath = Join-Path $OutputDir $sourceInstallerName
 
 if (-not (Test-Path -LiteralPath $installerPath)) {
   throw "Installer not found: $installerPath"
@@ -30,5 +31,7 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 Write-Host "Created GitHub release manifest:"
 Write-Host "  $manifestPath"
 Write-Host "Upload both files to the same GitHub release:"
-Write-Host "  $installerPath"
+Write-Host "  $installerPath as $installerName"
 Write-Host "  $manifestPath"
+
+

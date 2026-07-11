@@ -10,13 +10,16 @@ $repoDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $packageJson = Get-Content -LiteralPath (Join-Path $repoDir "package.json") -Raw | ConvertFrom-Json
 $version = [string]$packageJson.version
 $tag = "v$version"
-$installerName = "NilbogLite Setup $version.exe"
-$installerPath = Join-Path $OutputDir $installerName
+$sourceInstallerName = "NilbogLite Setup $version.exe"
+$installerName = "NilbogLite.Setup.$version.exe"
+$installerPath = Join-Path $OutputDir $sourceInstallerName
+$uploadInstallerPath = Join-Path $OutputDir $installerName
 $manifestPath = Join-Path $OutputDir "latest.json"
 
 if (-not (Test-Path -LiteralPath $installerPath)) {
   throw "Installer not found: $installerPath. Run npm run package:win first."
 }
+Copy-Item -LiteralPath $installerPath -Destination $uploadInstallerPath -Force
 
 & (Join-Path $PSScriptRoot "make-github-release-manifest.ps1") -OutputDir $OutputDir
 
@@ -44,9 +47,9 @@ if ($gh) {
   }
 
   if ($DryRun) {
-    Write-Host "DRY RUN: gh release upload $tag `"$installerPath`" `"$manifestPath`" --repo $Repo --clobber"
+    Write-Host "DRY RUN: gh release upload $tag `"$uploadInstallerPath`" `"$manifestPath`" --repo $Repo --clobber"
   } else {
-    & gh release upload $tag $installerPath $manifestPath --repo $Repo --clobber
+    & gh release upload $tag $uploadInstallerPath $manifestPath --repo $Repo --clobber
   }
   Write-Host "GitHub release ready: $Repo $tag"
   return
@@ -93,7 +96,7 @@ if (-not $release) {
 }
 
 foreach ($asset in @($release.assets)) {
-  if ($asset.name -eq $installerName -or $asset.name -eq "latest.json") {
+  if ($asset.name -eq $installerName -or $asset.name -eq $sourceInstallerName -or $asset.name -eq "latest.json") {
     if ($DryRun) {
       Write-Host "DRY RUN: delete existing asset $($asset.name)"
     } else {
@@ -103,7 +106,7 @@ foreach ($asset in @($release.assets)) {
 }
 
 $uploadBase = ([string]$release.upload_url).Replace("{?name,label}", "")
-foreach ($file in @($installerPath, $manifestPath)) {
+foreach ($file in @($uploadInstallerPath, $manifestPath)) {
   $name = [System.Uri]::EscapeDataString((Split-Path -Leaf $file))
   if ($DryRun) {
     Write-Host "DRY RUN: upload $file"
@@ -118,4 +121,6 @@ foreach ($file in @($installerPath, $manifestPath)) {
 }
 
 Write-Host "GitHub release ready: $Repo $tag"
+
+
 
