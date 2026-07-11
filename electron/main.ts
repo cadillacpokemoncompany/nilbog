@@ -158,11 +158,6 @@ const clickerIsStopped = (): boolean => !scanner?.state.autoClicker.enabled && !
 const hasClickerSettings = () =>
   scanner.state.autoClicker.targetX > 0 && scanner.state.autoClicker.targetY > 0 && scanner.state.autoClicker.intervalMs > 0;
 
-const isHomePackage = (packageName: string | null): boolean => {
-  if (!packageName) return false;
-  return /launcher|trebuchet|quickstep/i.test(packageName);
-};
-
 const activeTargetCard = (): StreamCard | null => {
   const activeSlot = scanner.state.autoClicker.activeSlot;
   if (activeSlot === null || activeSlot === undefined) return null;
@@ -454,17 +449,6 @@ const startDeviceWatcherLoop = () => {
               `device watcher redirected device=${device.id} target=${target.streamer} previousForeground=${foregroundPackage ?? "unknown"}`
             );
             return;
-          }
-
-          if (foregroundPackage === whatnotPackage) {
-            await adb.parkWhatnotOnHome(device.id);
-            await debugLog(`device watcher parked Whatnot device=${device.id}`);
-            return;
-          }
-
-          if (!isHomePackage(foregroundPackage)) {
-            await adb.goHome(device.id);
-            await debugLog(`device watcher sent Home device=${device.id} previousForeground=${foregroundPackage ?? "unknown"}`);
           }
         })
       );

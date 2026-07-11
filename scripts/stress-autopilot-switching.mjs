@@ -206,12 +206,15 @@ test("extracts SpaceNarwhalz active giveaway product name from websocket frame",
   assert(state?.giveawayName === "ASCENDED HEROES PACK FOR THE FREEEE!! ✨✨ #36", `expected active giveaway product name, got ${state?.giveawayName}`);
 });
 
-test("parks all selected devices when no match exists", async () => {
+test("falls back to KrakenHits when no match exists", async () => {
   const { scanner, calls } = createHarness();
-  setCards(scanner, [offlineCard(1, "KrakenHits")]);
+  setCards(scanner, [streamCard(0, "KrakenHits", "No scored phrase today", "uuid-kraken-fallback")]);
   await runNavigation(scanner);
-  assert(scanner.state.autoClicker.runtimeState === "PARKED", "expected PARKED runtime");
-  assert(parkCount(calls) === deviceCount, `expected ${deviceCount} park calls`);
+  assert(scanner.state.autoClicker.runtimeState === "NO_MATCH", `expected NO_MATCH fallback runtime, got ${scanner.state.autoClicker.runtimeState}: ${scanner.state.autoClicker.runtimeDetail}`);
+  assert(scanner.state.autoClicker.activeSlot === 0, "expected Kraken fallback active slot");
+  assert(openUrls(calls).length === deviceCount, "expected one Kraken open per device");
+  assert(openUrls(calls).every((url) => url.endsWith("/uuid-kraken-fallback")), "expected Kraken fallback URL");
+  assert(parkCount(calls) === 0, "expected no home parking");
 });
 
 test("opens every device to first matching stream", async () => {
@@ -285,15 +288,20 @@ test("uses newer match as tie breaker for same score", async () => {
   assert(openUrls(calls).every((url) => url.endsWith("/uuid-space")), "expected newer same-score URL");
 });
 
-test("ignores stale matches and parks", async () => {
+test("ignores stale matches and falls back to KrakenHits", async () => {
   const { scanner, calls } = createHarness();
-  setCards(scanner, [streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-stale", -180000)]);
+  setCards(scanner, [
+    streamCard(0, "KrakenHits", "No scored phrase today", "uuid-kraken-fallback"),
+    streamCard(4, "SpaceNarwhalz", "Elite Trainer Box giveaway", "uuid-stale", -180000)
+  ]);
   await runNavigation(scanner);
-  assert(scanner.state.autoClicker.runtimeState === "PARKED", "expected stale match to park");
-  assert(openUrls(calls).length === 0, "expected no stale open");
+  assert(scanner.state.autoClicker.runtimeState === "NO_MATCH", "expected stale match to fall back");
+  assert(scanner.state.autoClicker.activeSlot === 0, "expected Kraken fallback active slot");
+  assert(openUrls(calls).every((url) => url.endsWith("/uuid-kraken-fallback")), "expected Kraken fallback URL");
+  assert(parkCount(calls) === 0, "expected no home parking");
 });
 
-test("parks after a match ends even inside park cooldown", async () => {
+test("falls back to KrakenHits after a match ends", async () => {
   const { scanner, calls } = createHarness();
   scanner.snapshot = {
     ...scanner.state,
@@ -302,11 +310,16 @@ test("parks after a match ends even inside park cooldown", async () => {
       lastParkedAt: iso(-30000)
     }
   };
-  setCards(scanner, [streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-a")]);
+  setCards(scanner, [streamCard(4, "SpaceNarwhalz", "Elite Trainer Box giveaway", "uuid-a")]);
   await runNavigation(scanner);
-  setCards(scanner, [offlineCard(1, "KrakenHits")]);
+  setCards(scanner, [
+    streamCard(0, "KrakenHits", "No scored phrase today", "uuid-kraken-fallback"),
+    offlineCard(4, "SpaceNarwhalz")
+  ]);
   await runNavigation(scanner);
-  assert(parkCount(calls) === deviceCount, "expected park after active match ended despite cooldown");
+  assert(scanner.state.autoClicker.activeSlot === 0, "expected Kraken fallback active slot after match ended");
+  assert(openUrls(calls).slice(-deviceCount).every((url) => url.endsWith("/uuid-kraken-fallback")), "expected Kraken fallback after match ended");
+  assert(parkCount(calls) === 0, "expected no home parking");
 });
 
 test("rapid churn never keeps stale active slot on no-match", async () => {
@@ -319,18 +332,16 @@ test("rapid churn never keeps stale active slot on no-match", async () => {
     } else if (index % 5 === 2) {
       setCards(scanner, [streamCard(6, "Woosleys", `1000 Amazon ${index}`, `woosleys-${index}`, 2000)]);
     } else {
-      setCards(scanner, [offlineCard(1, "KrakenHits"), offlineCard(4, "SpaceNarwhalz"), offlineCard(6, "Woosleys")]);
+      setCards(scanner, [streamCard(0, "KrakenHits", `No scored phrase ${index}`, `kraken-fallback-${index}`), offlineCard(4, "SpaceNarwhalz"), offlineCard(6, "Woosleys")]);
     }
     await runNavigation(scanner);
-    if (scanner.state.autoClicker.runtimeState === "PARKED") {
-      assert(scanner.state.autoClicker.activeSlot === null, `active slot should be null when parked at iteration ${index}`);
+    if (scanner.state.autoClicker.runtimeState === "NO_MATCH") {
+      assert(scanner.state.autoClicker.activeSlot === 0, `active slot should be Kraken fallback at iteration ${index}`);
     }
   }
   const expectedSwitches = Math.max(1, Math.floor(churnIterations / 5));
   assert(openUrls(calls).length >= deviceCount * expectedSwitches, "expected stream switches under churn");
-  if (churnIterations >= 4) {
-    assert(parkCount(calls) >= deviceCount, "expected parking under churn");
-  }
+  assert(parkCount(calls) === 0, "expected no home parking under churn");
 });
 
 let passed = 0;

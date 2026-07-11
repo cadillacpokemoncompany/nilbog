@@ -16,6 +16,7 @@ const FEED_CYCLE_MS = 30_000;
 const FEED_SETTLE_MS = 5_000;
 const FEED_HARD_REFRESH_MS = 150_000;
 const OFFLINE_GRACE = 6;
+const KRAKEN_SLOT = 0;
 const NOVA_SLOT = 1;
 const ROUTE_BATCH_SIZE = 5;
 const ROUTE_BATCH_DELAY_MS = 180;
@@ -496,59 +497,25 @@ export class Scanner {
       return;
     }
 
-    const target = decision.card;
+    const fallbackTarget = this.snapshot.cards.find((card) => card.slot === KRAKEN_SLOT && card.status === "live" && card.resolvedUrl) ?? null;
+    const target = decision.card ?? fallbackTarget;
+    const targetIsFallback = !decision.card && Boolean(fallbackTarget);
     const connectedDevices = devices.filter((device) => device.status === "connected");
-
     const deviceKey = connectedDevices.map((device) => device.id).sort().join(",");
 
     if (!target?.resolvedUrl || !connectedDevices.length) {
-      const nextKey = connectedDevices.length ? `parked:${deviceKey}` : null;
-      const wasAlreadyParked = nextKey !== null && nextKey === this.lastAutoNavKey;
-      const shouldPark = Boolean(nextKey);
-      if (shouldPark && !this.snapshot.autoClicker.dryRun) {
-        const parkResults = await Promise.allSettled(
-          connectedDevices.map((device) => this.adb.parkWhatnotOnHome(device.id))
-        );
-        const parkedCount = parkResults.filter((result) => result.status === "fulfilled").length;
-        if (!wasAlreadyParked) {
-          void this.notify?.({
-            kind: "parking",
-            streamer: "Home Screen",
-            detail: [`Parked ${parkedCount}/${connectedDevices.length} phones`, decision.detail].filter(Boolean).join("\n")
-          });
-        }
-        this.lastAutoNavKey = nextKey;
-        this.updateRuntime("PARKED", decision.detail, decision, `Parked ${parkedCount}/${connectedDevices.length} phone(s) on Home while waiting`);
-        this.snapshot = {
-          ...this.snapshot,
-          autoClicker: {
-            ...this.snapshot.autoClicker,
-            deviceRuntime: patchDeviceRuntime(
-              this.snapshot.autoClicker.deviceRuntime,
-              connectedDevices.map((device) => device.id),
-              {
-                phase: "parked",
-                targetStreamer: null,
-                targetUrl: null,
-                lastAction: "parked on home",
-                lastError: parkedCount === connectedDevices.length ? null : "some devices failed to park"
-              },
-              new Date().toISOString()
-            )
-          }
-        };
-      } else if (!nextKey) {
+      if (!connectedDevices.length) {
         this.lastAutoNavKey = null;
         this.updateRuntime("NO_DEVICE", "No connected device", decision);
       } else {
-        this.updateRuntime(this.snapshot.autoClicker.dryRun ? "DRY_RUN" : "NO_MATCH", decision.detail, decision);
+        this.lastAutoNavKey = null;
+        this.updateRuntime(this.snapshot.autoClicker.dryRun ? "DRY_RUN" : "NO_MATCH", `${decision.detail}; Kraken fallback not live yet`, decision);
       }
       this.snapshot = {
         ...this.snapshot,
         autoClicker: {
           ...this.snapshot.autoClicker,
-          activeSlot: null,
-          lastParkedAt: shouldPark ? new Date().toISOString() : this.snapshot.autoClicker.lastParkedAt
+          activeSlot: null
         }
       };
       return;
@@ -557,11 +524,15 @@ export class Scanner {
     const routeKey = [
       target.slot,
       target.resolvedUrl,
-      deviceKey
+      deviceKey,
+      targetIsFallback ? "fallback" : "match"
     ].join(":");
     const nextKey = routeKey;
+    const runtimeState = this.snapshot.autoClicker.dryRun ? "DRY_RUN" : targetIsFallback ? "NO_MATCH" : "MATCHED";
+    const runtimeDetail = targetIsFallback ? `${decision.detail}; staying on KrakenHits` : decision.detail;
+
     if (nextKey === this.lastAutoNavKey) {
-      this.updateRuntime(this.snapshot.autoClicker.dryRun ? "DRY_RUN" : "MATCHED", decision.detail, decision);
+      this.updateRuntime(runtimeState, runtimeDetail, decision);
       return;
     }
 
@@ -627,14 +598,14 @@ export class Scanner {
     }
     this.lastAutoNavKey = nextKey;
     const routedAction = this.snapshot.autoClicker.dryRun
-      ? `Dry run matched ${target.streamer}`
+      ? `Dry run ${targetIsFallback ? "fallback" : "matched"} ${target.streamer}`
       : `Sent ${routedCount}/${connectedDevices.length} phone(s) to ${target.streamer}`;
     if (!this.snapshot.autoClicker.dryRun) {
       void this.notify?.({
-        kind: "navigation",
+        kind: targetIsFallback ? "parking" : "navigation",
         streamer: target.streamer,
         detail: [
-          `Navigated due to "${decision.detail}"`,
+          targetIsFallback ? `No match; parked in KrakenHits` : `Navigated due to "${decision.detail}"`,
           `Routed ${routedCount}/${connectedDevices.length} phones`,
           target.giveawayName ?? ""
         ].filter(Boolean).join("\n")
@@ -643,19 +614,19 @@ export class Scanner {
     const streamLog = this.snapshot.autoClicker.dryRun
       ? this.snapshot.autoClicker.activityLog
       : this.appendActivityLog(this.snapshot.autoClicker.activityLog, "enteredStream", `${target.streamer} ${target.resolvedUrl}`);
-    const nextActivityLog = this.appendActivityLog(streamLog, "currentTask", `MATCHED: ${routedAction}`);
+    const nextActivityLog = this.appendActivityLog(streamLog, "currentTask", `${targetIsFallback ? "NO_MATCH" : "MATCHED"}: ${routedAction}`);
     this.snapshot = {
       ...this.snapshot,
       autoClicker: {
         ...this.snapshot.autoClicker,
         activeSlot: target.slot,
-        runtimeState: this.snapshot.autoClicker.dryRun ? "DRY_RUN" : "MATCHED",
-        runtimeDetail: decision.detail,
+        runtimeState,
+        runtimeDetail,
         matchedRuleId: decision.ruleId,
         matchedScore: decision.score,
         ruleHits: decision.ruleHits,
         activityLog: nextActivityLog,
-        lastAction: routedAction,
+        lastAction: targetIsFallback ? `No match; staying on ${target.streamer}` : routedAction,
         lastActionAt: new Date().toISOString()
       }
     };
