@@ -119,6 +119,7 @@ const createPreviewApi = () => {
         browser: { ...snapshot.browser, launched: true, launchStatus: "open", launchError: null }
       }),
     minimizeApp: () => Promise.resolve(),
+    switchAccountsNext: () => Promise.resolve(snapshot),
     updateCard: (slot: number, patch: Partial<StreamCard>) =>
       commit({
         ...snapshot,

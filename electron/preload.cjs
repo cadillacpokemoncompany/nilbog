@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("nilbog", {
   getSnapshot: () => ipcRenderer.invoke("snapshot:get"),
   launchBrowser: () => ipcRenderer.invoke("browser:launch"),
   minimizeApp: () => ipcRenderer.invoke("app:minimize"),
+  switchAccountsNext: () => ipcRenderer.invoke("account:switch-next"),
   updateCard: (slot, patch) => ipcRenderer.invoke("card:update", slot, patch),
   updateAutoClicker: (patch) => ipcRenderer.invoke("autoclicker:update", patch),
   updateKeywordScoring: (rules) => ipcRenderer.invoke("keyword-scoring:update", rules),

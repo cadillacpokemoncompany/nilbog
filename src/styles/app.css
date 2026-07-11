@@ -833,6 +833,28 @@ input[type="number"]::-webkit-outer-spin-button {
   font-weight: 750;
 }
 
+
+.account-switch-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: #f7fbff;
+  background: rgba(123, 85, 196, 0.92);
+  padding: 0;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.account-switch-button svg {
+  width: 12px;
+  height: 12px;
+}
 .autoclicker-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

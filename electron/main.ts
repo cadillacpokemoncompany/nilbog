@@ -186,6 +186,59 @@ const appendActivityLog = (
   };
 };
 
+
+type DeviceAccountRotationState = {
+  deviceId: string;
+  currentSlot: number;
+  updatedAt: string | null;
+  slots: Array<{ slot: number; lastSelectedAt: string | null }>;
+};
+
+const accountSlotCount = 5;
+const normalizeAccountSlot = (value: unknown): number => {
+  const slot = Number(value);
+  return Number.isInteger(slot) && slot >= 1 && slot <= accountSlotCount ? slot : 0;
+};
+const nextAccountSlot = (currentSlot: number): number => currentSlot >= accountSlotCount ? 1 : currentSlot + 1;
+const accountStatePath = (deviceId: string): string => {
+  const safeDeviceId = deviceId.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  return join(app.getPath("userData"), "device-accounts", `${safeDeviceId}.json`);
+};
+const defaultAccountRotationState = (deviceId: string): DeviceAccountRotationState => ({
+  deviceId,
+  currentSlot: 0,
+  updatedAt: null,
+  slots: Array.from({ length: accountSlotCount }, (_, index) => ({ slot: index + 1, lastSelectedAt: null }))
+});
+const readAccountRotationState = async (deviceId: string): Promise<DeviceAccountRotationState> => {
+  const fallback = defaultAccountRotationState(deviceId);
+  const raw = await readFile(accountStatePath(deviceId), "utf8").catch(() => "");
+  if (!raw.trim()) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as Partial<DeviceAccountRotationState>;
+    const currentSlot = normalizeAccountSlot(parsed.currentSlot);
+    const savedSlots = Array.isArray(parsed.slots) ? parsed.slots : [];
+    return {
+      deviceId,
+      currentSlot,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : null,
+      slots: fallback.slots.map((slot) => {
+        const saved = savedSlots.find((candidate) => normalizeAccountSlot(candidate?.slot) === slot.slot);
+        return {
+          slot: slot.slot,
+          lastSelectedAt: typeof saved?.lastSelectedAt === "string" ? saved.lastSelectedAt : null
+        };
+      })
+    };
+  } catch {
+    return fallback;
+  }
+};
+const writeAccountRotationState = async (state: DeviceAccountRotationState): Promise<void> => {
+  const filePath = accountStatePath(state.deviceId);
+  await mkdir(join(app.getPath("userData"), "device-accounts"), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+};
 const updateTapHealth = async (patch: Partial<AppSnapshot["autoClicker"]["adbHealth"]>, action?: string): Promise<void> => {
   let activityLog = scanner.state.autoClicker.activityLog;
   if (action) {
@@ -733,6 +786,88 @@ app.whenReady().then(async () => {
       await debugLog("autoclicker stop");
       stopAutoClickerLoop();
     }
+    return scanner.state;
+  });
+  ipcMain.handle("account:switch-next", async () => {
+    stopAutoClickerLoop();
+    const disabledAt = new Date().toISOString();
+    await scanner.setState({
+      ...scanner.state,
+      autoClicker: {
+        ...scanner.state.autoClicker,
+        enabled: false,
+        autoNavEnabled: false,
+        lastAction: "Account switch: automation stopped",
+        lastActionAt: disabledAt,
+        activityLog: appendActivityLog(scanner.state.autoClicker.activityLog, "currentTask", "ACCOUNT SWITCH: automation stopped")
+      }
+    });
+
+    const freshDevices = await adb.listDevices(scanner.state.devices);
+    const devices = freshDevices.filter((device) => device.status === "connected");
+    if (!devices.length) {
+      await scanner.setState({
+        ...scanner.state,
+        devices: freshDevices,
+        autoClicker: {
+          ...scanner.state.autoClicker,
+          adbHealth: {
+            ...scanner.state.autoClicker.adbHealth,
+            connected: 0,
+            selectedConnected: 0,
+            lastError: "No connected devices for account switch"
+          },
+          lastAction: "Account switch failed: no connected devices",
+          lastActionAt: new Date().toISOString(),
+          activityLog: appendActivityLog(scanner.state.autoClicker.activityLog, "currentTask", "ACCOUNT SWITCH: no connected devices")
+        }
+      });
+      return scanner.state;
+    }
+
+    const results: Array<{ deviceId: string; slot: number; ok: boolean; message: string }> = [];
+    for (const device of devices) {
+      const saved = await readAccountRotationState(device.id);
+      const slot = nextAccountSlot(saved.currentSlot);
+      const result = await adb.tapGoogleAccountPickerSlot(device.id, slot);
+      results.push({ deviceId: device.id, slot, ok: result.ok, message: result.message });
+      await debugLog(`account switch device=${device.id} slot=${slot} ok=${result.ok} ${result.message}`);
+
+      if (result.ok) {
+        const selectedAt = new Date().toISOString();
+        await writeAccountRotationState({
+          ...saved,
+          deviceId: device.id,
+          currentSlot: slot,
+          updatedAt: selectedAt,
+          slots: saved.slots.map((entry) => entry.slot === slot ? { ...entry, lastSelectedAt: selectedAt } : entry)
+        });
+      }
+    }
+
+    const okCount = results.filter((result) => result.ok).length;
+    const failed = results.find((result) => !result.ok);
+    const action = `Account switch: ${okCount}/${devices.length} device(s) advanced`;
+    await scanner.setState({
+      ...scanner.state,
+      devices: freshDevices,
+      autoClicker: {
+        ...scanner.state.autoClicker,
+        enabled: false,
+        autoNavEnabled: false,
+        lastAction: action,
+        lastActionAt: new Date().toISOString(),
+        activityLog: appendActivityLog(scanner.state.autoClicker.activityLog, "currentTask", `ACCOUNT SWITCH: ${okCount}/${devices.length} advanced`),
+        adbHealth: {
+          ...scanner.state.autoClicker.adbHealth,
+          connected: devices.length,
+          selectedConnected: devices.filter((device) => device.selected).length,
+          lastTapOk: okCount === devices.length,
+          lastTapDevice: `${okCount}/${devices.length}`,
+          lastError: failed ? `${failed.deviceId} slot ${failed.slot}: ${failed.message}` : null
+        }
+      }
+    });
     return scanner.state;
   });
   ipcMain.handle("keyword-scoring:update", async (_event, rules) => {
