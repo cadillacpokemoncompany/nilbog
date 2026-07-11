@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$Repo = "cadillacpokemoncompany/nilbog",
   [string]$OutputDir = "C:\outputs\NilbogLite",
   [switch]$DryRun
@@ -26,7 +26,15 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
 
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if ($gh) {
-  $existing = (& gh release view $tag --repo $Repo --json tagName 2>$null | ConvertFrom-Json) 2>$null
+  $existing = $null
+  try {
+    $releaseJson = & gh release view $tag --repo $Repo --json tagName 2>$null
+    if ($LASTEXITCODE -eq 0 -and $releaseJson) {
+      $existing = $releaseJson | ConvertFrom-Json
+    }
+  } catch {
+    $existing = $null
+  }
   if (-not $existing) {
     if ($DryRun) {
       Write-Host "DRY RUN: gh release create $tag --repo $Repo --title $tag --notes NilbogLite $version"
@@ -110,3 +118,4 @@ foreach ($file in @($installerPath, $manifestPath)) {
 }
 
 Write-Host "GitHub release ready: $Repo $tag"
+
