@@ -233,6 +233,36 @@ test("does not reopen same stream and same giveaway repeatedly", async () => {
   await runNavigation(scanner);
   assert(openUrls(calls).length === deviceCount, "expected no duplicate reopen");
 });
+test("routes only new or off-target devices for the current stream", async () => {
+  const { scanner, calls } = createHarness();
+  const card = streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-a");
+  const targetUrl = card.resolvedUrl;
+  setCards(scanner, [card]);
+  scanner.snapshot = {
+    ...scanner.state,
+    autoClicker: {
+      ...scanner.state.autoClicker,
+      deviceRuntime: scanner.state.autoClicker.deviceRuntime.map((runtime, index) =>
+        index === deviceCount - 1
+          ? runtime
+          : {
+              ...runtime,
+              phase: "on_stream",
+              targetStreamer: "KrakenHits",
+              targetUrl,
+              lastAction: "on KrakenHits",
+              lastActionAt: iso()
+            }
+      )
+    }
+  };
+  await runNavigation(scanner);
+  const routed = calls.filter((call) => call.type === "openUrl");
+  assert(routed.length === 1, `expected only one device route, got ${routed.length}`);
+  assert(routed[0].deviceId === devices[deviceCount - 1].id, "expected only the untracked/new device to route");
+  assert(routed[0].url.endsWith("/uuid-a"), "expected current target URL");
+  assert(scanner.state.autoClicker.lastAction.includes("skipped 19 already there"), `expected skipped count in action, got ${scanner.state.autoClicker.lastAction}`);
+});
 
 test("updates same stream match without reopening the same URL", async () => {
   const { scanner, calls } = createHarness();

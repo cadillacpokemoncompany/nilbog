@@ -18,8 +18,12 @@ const FEED_HARD_REFRESH_MS = 150_000;
 const OFFLINE_GRACE = 6;
 const KRAKEN_SLOT = 0;
 const NOVA_SLOT = 1;
-const ROUTE_BATCH_SIZE = 5;
-const ROUTE_BATCH_DELAY_MS = 180;
+const routeDeviceStaggerMsFromEnv = Number(process.env.NILBOG_ROUTE_STAGGER_MS);
+const routeVerifyDelayMsFromEnv = Number(process.env.NILBOG_ROUTE_VERIFY_DELAY_MS);
+const routeRetryVerifyDelayMsFromEnv = Number(process.env.NILBOG_ROUTE_RETRY_VERIFY_DELAY_MS);
+const ROUTE_DEVICE_STAGGER_MS = Number.isFinite(routeDeviceStaggerMsFromEnv) ? Math.max(0, routeDeviceStaggerMsFromEnv) : 3_000;
+const ROUTE_VERIFY_DELAY_MS = Number.isFinite(routeVerifyDelayMsFromEnv) ? Math.max(0, routeVerifyDelayMsFromEnv) : 700;
+const ROUTE_RETRY_VERIFY_DELAY_MS = Number.isFinite(routeRetryVerifyDelayMsFromEnv) ? Math.max(0, routeRetryVerifyDelayMsFromEnv) : 900;
 const WHATNOT_PACKAGE = "com.whatnot_mobile";
 const FIXED_AUTOPILOT_RULES: Array<{
   id: number;
@@ -126,52 +130,55 @@ const easternDateAndHour = (date = new Date()): { dateKey: string; hour: number 
   };
 };
 
-const routeDevicesInBatches = async (
+type RouteResult =
+  | { deviceId: string; ok: true; retried: boolean }
+  | { deviceId: string; ok: false; message: string; retried: boolean };
+
+const routeDevicesIndividually = async (
   adb: AdbService,
   devices: AdbDevice[],
-  url: string
-): Promise<Array<{ deviceId: string; ok: true; retried: boolean } | { deviceId: string; ok: false; message: string; retried: boolean }>> => {
-  const results: Array<{ deviceId: string; ok: true; retried: boolean } | { deviceId: string; ok: false; message: string; retried: boolean }> = [];
-  for (let index = 0; index < devices.length; index += ROUTE_BATCH_SIZE) {
-    const batch = devices.slice(index, index + ROUTE_BATCH_SIZE);
-    const batchResults = await Promise.all(
-      batch.map(async (device) => {
-        try {
-          await adb.openUrl(device.id, url);
-          await new Promise((resolve) => setTimeout(resolve, 700));
-          const foreground = await adb.getForegroundPackage(device.id).catch(() => null);
-          if (foreground === WHATNOT_PACKAGE) {
-            return { deviceId: device.id, ok: true as const, retried: false };
-          }
+  url: string,
+  staggerMs = ROUTE_DEVICE_STAGGER_MS
+): Promise<RouteResult[]> => {
+  const results: RouteResult[] = [];
 
-          await adb.openUrl(device.id, url);
-          await new Promise((resolve) => setTimeout(resolve, 900));
-          const retryForeground = await adb.getForegroundPackage(device.id).catch(() => null);
-          if (retryForeground === WHATNOT_PACKAGE) {
-            return { deviceId: device.id, ok: true as const, retried: true };
-          }
-
-          return {
+  for (let index = 0; index < devices.length; index += 1) {
+    const device = devices[index];
+    try {
+      await adb.openUrl(device.id, url);
+      await new Promise((resolve) => setTimeout(resolve, ROUTE_VERIFY_DELAY_MS));
+      const foreground = await adb.getForegroundPackage(device.id).catch(() => null);
+      if (foreground === WHATNOT_PACKAGE) {
+        results.push({ deviceId: device.id, ok: true, retried: false });
+      } else {
+        await adb.openUrl(device.id, url);
+        await new Promise((resolve) => setTimeout(resolve, ROUTE_RETRY_VERIFY_DELAY_MS));
+        const retryForeground = await adb.getForegroundPackage(device.id).catch(() => null);
+        if (retryForeground === WHATNOT_PACKAGE) {
+          results.push({ deviceId: device.id, ok: true, retried: true });
+        } else {
+          results.push({
             deviceId: device.id,
-            ok: false as const,
+            ok: false,
             message: `Whatnot not foreground after route (${retryForeground ?? foreground ?? "unknown"})`,
             retried: true
-          };
-        } catch (error) {
-          return {
-            deviceId: device.id,
-            ok: false as const,
-            message: error instanceof Error ? error.message : String(error),
-            retried: false
-          };
+          });
         }
-      })
-    );
-    results.push(...batchResults);
-    if (index + ROUTE_BATCH_SIZE < devices.length) {
-      await new Promise((resolve) => setTimeout(resolve, ROUTE_BATCH_DELAY_MS));
+      }
+    } catch (error) {
+      results.push({
+        deviceId: device.id,
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+        retried: false
+      });
+    }
+
+    if (index + 1 < devices.length) {
+      await new Promise((resolve) => setTimeout(resolve, staggerMs));
     }
   }
+
   return results;
 };
 
@@ -501,7 +508,6 @@ export class Scanner {
     const target = decision.card ?? fallbackTarget;
     const targetIsFallback = !decision.card && Boolean(fallbackTarget);
     const connectedDevices = devices.filter((device) => device.status === "connected");
-    const deviceKey = connectedDevices.map((device) => device.id).sort().join(",");
 
     if (!target?.resolvedUrl || !connectedDevices.length) {
       if (!connectedDevices.length) {
@@ -521,31 +527,28 @@ export class Scanner {
       return;
     }
 
-    const routeKey = [
-      target.slot,
-      target.resolvedUrl,
-      deviceKey,
-      targetIsFallback ? "fallback" : "match"
-    ].join(":");
-    const nextKey = routeKey;
     const runtimeState = this.snapshot.autoClicker.dryRun ? "DRY_RUN" : targetIsFallback ? "NO_MATCH" : "MATCHED";
     const runtimeDetail = targetIsFallback ? `${decision.detail}; staying on KrakenHits` : decision.detail;
+    const runtimeByDevice = new Map(this.snapshot.autoClicker.deviceRuntime.map((device) => [device.id, device]));
+    const routeCandidates = this.snapshot.autoClicker.dryRun
+      ? connectedDevices
+      : connectedDevices.filter((device) => {
+          const runtime = runtimeByDevice.get(device.id);
+          return !(runtime?.phase === "on_stream" && runtime.targetUrl === target.resolvedUrl);
+        });
+    const skippedAlreadyOnTarget = connectedDevices.length - routeCandidates.length;
+    const nextKey = [target.slot, target.resolvedUrl, targetIsFallback ? "fallback" : "match"].join(":");
 
-    if (nextKey === this.lastAutoNavKey) {
-      this.updateRuntime(runtimeState, runtimeDetail, decision);
-      return;
-    }
-
-    let routedCount = connectedDevices.length;
-    const routeStartedAt = new Date().toISOString();
-    if (!this.snapshot.autoClicker.dryRun) {
+    let routedCount = this.snapshot.autoClicker.dryRun ? routeCandidates.length : 0;
+    if (!this.snapshot.autoClicker.dryRun && routeCandidates.length) {
+      const routeStartedAt = new Date().toISOString();
       this.snapshot = {
         ...this.snapshot,
         autoClicker: {
           ...this.snapshot.autoClicker,
           deviceRuntime: patchDeviceRuntime(
             this.snapshot.autoClicker.deviceRuntime,
-            connectedDevices.map((device) => device.id),
+            routeCandidates.map((device) => device.id),
             {
               phase: "routing",
               targetStreamer: target.streamer,
@@ -557,7 +560,7 @@ export class Scanner {
           )
         }
       };
-      const routeResults = await routeDevicesInBatches(this.adb, connectedDevices, target.resolvedUrl);
+      const routeResults = await routeDevicesIndividually(this.adb, routeCandidates, target.resolvedUrl);
       routedCount = routeResults.filter((result) => result.ok).length;
       const routeCompletedAt = new Date().toISOString();
       const okIds = routeResults.filter((result) => result.ok).map((result) => result.deviceId);
@@ -597,21 +600,24 @@ export class Scanner {
       };
     }
     this.lastAutoNavKey = nextKey;
+    const routeSummary = routeCandidates.length
+      ? `Sent ${routedCount}/${routeCandidates.length} phone(s) to ${target.streamer}${skippedAlreadyOnTarget ? `; skipped ${skippedAlreadyOnTarget} already there` : ""}`
+      : `Already on ${target.streamer} (${skippedAlreadyOnTarget}/${connectedDevices.length})`;
     const routedAction = this.snapshot.autoClicker.dryRun
       ? `Dry run ${targetIsFallback ? "fallback" : "matched"} ${target.streamer}`
-      : `Sent ${routedCount}/${connectedDevices.length} phone(s) to ${target.streamer}`;
-    if (!this.snapshot.autoClicker.dryRun) {
+      : routeSummary;
+    if (!this.snapshot.autoClicker.dryRun && routeCandidates.length) {
       void this.notify?.({
         kind: targetIsFallback ? "parking" : "navigation",
         streamer: target.streamer,
         detail: [
           targetIsFallback ? `No match; parked in KrakenHits` : `Navigated due to "${decision.detail}"`,
-          `Routed ${routedCount}/${connectedDevices.length} phones`,
+          `Routed ${routedCount}/${routeCandidates.length} phones${skippedAlreadyOnTarget ? `; skipped ${skippedAlreadyOnTarget} already there` : ""}`,
           target.giveawayName ?? ""
         ].filter(Boolean).join("\n")
       });
     }
-    const streamLog = this.snapshot.autoClicker.dryRun
+    const streamLog = this.snapshot.autoClicker.dryRun || !routeCandidates.length
       ? this.snapshot.autoClicker.activityLog
       : this.appendActivityLog(this.snapshot.autoClicker.activityLog, "enteredStream", `${target.streamer} ${target.resolvedUrl}`);
     const nextActivityLog = this.appendActivityLog(streamLog, "currentTask", `${targetIsFallback ? "NO_MATCH" : "MATCHED"}: ${routedAction}`);
