@@ -222,5 +222,6 @@ export const createDefaultKeywordRules = (): KeywordScoreRule[] =>
     { id: 10, words: "1000 amazon", score: 1000, omitWords: "streamer:any" },
     { id: 11, words: "playstation 5, ps5", score: 500, omitWords: "streamer:any" },
     { id: 12, words: "booster box", score: 25, omitWords: "streamer:VendturesVault" },
-    { id: 13, words: "booster box", score: 500, omitWords: "streamer:KrakenHits" }
+    { id: 13, words: "booster box", score: 500, omitWords: "streamer:KrakenHits" },
+    { id: 14, words: "booster box", score: 25, omitWords: "streamer:NovaTCG" }
   ];
