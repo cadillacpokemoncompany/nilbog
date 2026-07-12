@@ -6,7 +6,6 @@ declare global {
       getSnapshot: () => Promise<AppSnapshot>;
       launchBrowser: () => Promise<AppSnapshot>;
       minimizeApp: () => Promise<void>;
-      switchAccountsNext: () => Promise<AppSnapshot>;
       updateCard: (slot: number, patch: Partial<StreamCard>) => Promise<AppSnapshot>;
       updateAutoClicker: (patch: Partial<AutoClickerSettings>) => Promise<AppSnapshot>;
       updateKeywordScoring: (rules: KeywordScoreRule[]) => Promise<AppSnapshot>;

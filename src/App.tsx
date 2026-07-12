@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Pause, Play, RefreshCw } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 import { createDefaultKeywordRules, type AppSnapshot, type StreamCard } from "../electron/types";
 import { nilbogApi } from "./nilbogApi";
 import "./styles/app.css";
@@ -311,15 +311,6 @@ export default function App() {
               />
             </div>
           </div>
-
-          <button
-            className="account-switch-button"
-            onClick={() => nilbogApi.switchAccountsNext().then(setSnapshot)}
-            title="Switch every connected phone to the next saved account slot"
-          >
-            <RefreshCw size={12} />
-            NEXT ACCT
-          </button>
 
           <div className="autoclicker-actions">
             <button

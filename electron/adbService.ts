@@ -156,26 +156,6 @@ export class AdbService {
     return String(stdout ?? "");
   }
 
-
-  async tapGoogleAccountPickerSlot(deviceId: string, slot: number): Promise<{ ok: boolean; message: string }> {
-    const slotTargets: Record<number, { x: number; y: number }> = {
-      1: { x: 360, y: 582 },
-      2: { x: 360, y: 702 },
-      3: { x: 360, y: 820 },
-      4: { x: 360, y: 940 },
-      5: { x: 360, y: 1058 }
-    };
-    const target = slotTargets[slot];
-    if (!target) return { ok: false, message: `invalid account slot ${slot}` };
-
-    const xml = await this.readUiXml(deviceId, "nilbog_google_account_picker.xml", 2_500).catch(() => "");
-    if (!/Choose an account/i.test(xml) || !/to continue to Whatnot/i.test(xml)) {
-      return { ok: false, message: "Google account picker not detected" };
-    }
-
-    await this.touch(deviceId, target.x, target.y);
-    return { ok: true, message: `selected account slot ${slot}` };
-  }
   async isWinnerPopupVisible(deviceId: string): Promise<{ visible: boolean; detail: string }> {
     const text = await this.readUiXml(deviceId, "nilbog_winner_watch.xml", 1_800).catch(() => "");
     return {

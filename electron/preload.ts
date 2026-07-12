@@ -5,7 +5,6 @@ contextBridge.exposeInMainWorld("nilbog", {
   getSnapshot: () => ipcRenderer.invoke("snapshot:get") as Promise<AppSnapshot>,
   launchBrowser: () => ipcRenderer.invoke("browser:launch") as Promise<AppSnapshot>,
   minimizeApp: () => ipcRenderer.invoke("app:minimize") as Promise<void>,
-  switchAccountsNext: () => ipcRenderer.invoke("account:switch-next") as Promise<AppSnapshot>,
   updateCard: (slot: number, patch: Partial<StreamCard>) =>
     ipcRenderer.invoke("card:update", slot, patch) as Promise<AppSnapshot>,
   updateAutoClicker: (patch: Partial<AutoClickerSettings>) =>
