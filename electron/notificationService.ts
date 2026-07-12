@@ -35,11 +35,37 @@ export class NotificationService {
     const style = alertStyles[kind] ?? alertStyles.info;
     const stream = cleanBlock(streamName || "Unknown stream");
     const detail = cleanBlock(occurred || "No detail");
+    const description = (() => {
+      if (kind === "navigation") {
+        const rawLines = occurred
+          .split(/\r?\n/)
+          .map(cleanLine)
+          .filter(Boolean);
+        const reason = rawLines[0]?.replace(/^Navigated due to\s+/i, "").replace(/^"|"$/g, "") || "MATCH FOUND";
+        const giveaway = rawLines.find((line) => !/^Navigated due to/i.test(line) && !/^Routed\b/i.test(line));
+        return [
+          `NAVIGATED TO ${stream} STREAM`,
+          giveaway ? `BEGAN ENTERING: ${cleanBlock(giveaway)}` : "BEGAN ENTERING",
+          `WHY: ${cleanBlock(reason)}`
+        ].join("\n\n");
+      }
+
+      if (kind === "entry") {
+        const rawLines = occurred
+          .split(/\r?\n/)
+          .map(cleanLine)
+          .filter(Boolean);
+        const giveaway = rawLines.find((line) => !/^Entered giveaway/i.test(line) && !/^Tapped\b/i.test(line));
+        return [`ENTERING ${stream}`, giveaway ? cleanBlock(giveaway) : "GIVEAWAY TAP SENT"].join("\n\n");
+      }
+
+      return [style.label, stream, detail].join("\n\n");
+    })();
     await this.post({
       embeds: [
         {
           color: style.color,
-          description: [style.label, stream, detail].join("\n\n"),
+          description,
           timestamp: new Date().toISOString()
         }
       ]
