@@ -588,6 +588,8 @@ export class AdbService {
     await this.prepareControlDisplay(deviceId);
     await this.shell(deviceId, ["input", "keyevent", "KEYCODE_WAKEUP"]).catch(() => undefined);
     await this.shell(deviceId, ["wm", "dismiss-keyguard"]).catch(() => undefined);
+    await this.shell(deviceId, ["cmd", "appops", "set", whatnotPackage, "PICTURE_IN_PICTURE", "ignore"]).catch(() => undefined);
+    await this.shell(deviceId, ["appops", "set", whatnotPackage, "PICTURE_IN_PICTURE", "ignore"]).catch(() => undefined);
     await this.shell(deviceId, ["settings", "put", "global", "policy_control", `immersive.full=${whatnotPackage}`]).catch(() => undefined);
     await this.shell(deviceId, ["cmd", "statusbar", "collapse"]).catch(() => undefined);
   }
@@ -623,6 +625,8 @@ export class AdbService {
     await this.shell(deviceId, ["settings", "put", "secure", "accessibility_display_magnification_scale", "1.0"]).catch(() => undefined);
     await this.shell(deviceId, ["settings", "put", "secure", "accessibility_magnification_enabled", "0"]).catch(() => undefined);
     await this.shell(deviceId, ["settings", "put", "system", "screen_off_timeout", "2147483647"]).catch(() => undefined);
+    await this.shell(deviceId, ["cmd", "appops", "set", whatnotPackage, "PICTURE_IN_PICTURE", "ignore"]).catch(() => undefined);
+    await this.shell(deviceId, ["appops", "set", whatnotPackage, "PICTURE_IN_PICTURE", "ignore"]).catch(() => undefined);
     await this.shell(deviceId, ["svc", "power", "stayon", "true"]).catch(() => undefined);
     await this.enforceLowPowerControls(deviceId, force);
     this.lastDisplayPrepareAt.set(deviceId, now);
@@ -631,6 +635,9 @@ export class AdbService {
   async ensureWhatnotForeground(deviceId: string, preferredUrl: string | null, forceDisplay = false): Promise<{ changed: boolean; foregroundPackage: string | null }> {
     const foregroundPackage = await this.getForegroundPackage(deviceId);
     if (foregroundPackage === whatnotPackage) {
+      if (forceDisplay) {
+        await this.prepareFullscreenWhatnot(deviceId);
+      }
       return { changed: false, foregroundPackage };
     }
 

@@ -16,6 +16,19 @@ const browserCandidates = [
   { name: "Edge", path: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" }
 ];
 
+interface StreamSignalHealth {
+  streamer: string | null;
+  streamUrl: string;
+  lastAttachedAt: number;
+  lastWsFrameAt: number | null;
+  lastGiveawayFrameAt: number | null;
+  lastGraphqlAt: number | null;
+  lastApolloAt: number | null;
+  lastStateAt: number | null;
+  lastStateNameAt: number | null;
+  lastSelfHealAt: number | null;
+}
+
 const packagedChromiumPath = () => {
   const resourcesPath = process.resourcesPath ?? "";
   const candidates = [
@@ -30,10 +43,14 @@ export class BrowserService {
   private page: Page | null = null;
   private streamPages = new Map<string, Page>();
   private giveawayStates = new Map<string, GiveawayState>();
+  private giveawayNamesByStreamAndId = new Map<string, Map<string, string>>();
+  private streamSignalHealth = new Map<string, StreamSignalHealth>();
   private loggedGiveawayStateKeys = new Map<string, string>();
   private apolloRetryTimers = new Map<string, NodeJS.Timeout>();
+  private streamSignalWatchdogTimers = new Map<string, NodeJS.Timeout>();
   private giveawayDomTimers = new Map<string, NodeJS.Timeout>();
   private wsHookedStreamIds = new Set<string>();
+  private cdpHookedStreamIds = new Set<string>();
   private graphqlHookedStreamIds = new Set<string>();
   private giveawayDebugEvents = new Set<string>();
   private giveawayWsObservedFrames = new Set<string>();
@@ -128,12 +145,17 @@ export class BrowserService {
     this.streamPreviewTimers.clear();
     this.apolloRetryTimers.forEach((timer) => clearInterval(timer));
     this.apolloRetryTimers.clear();
+    this.streamSignalWatchdogTimers.forEach((timer) => clearInterval(timer));
+    this.streamSignalWatchdogTimers.clear();
     this.giveawayDomTimers.forEach((timer) => clearInterval(timer));
     this.giveawayDomTimers.clear();
     this.streamPages.clear();
     this.giveawayStates.clear();
+    this.giveawayNamesByStreamAndId.clear();
+    this.streamSignalHealth.clear();
     this.loggedGiveawayStateKeys.clear();
     this.wsHookedStreamIds.clear();
+    this.cdpHookedStreamIds.clear();
     this.graphqlHookedStreamIds.clear();
     this.giveawayDebugEvents.clear();
     this.giveawayWsObservedFrames.clear();
@@ -150,10 +172,13 @@ export class BrowserService {
     this.streamPreviewTimers.clear();
     this.apolloRetryTimers.forEach((timer) => clearInterval(timer));
     this.apolloRetryTimers.clear();
+    this.streamSignalWatchdogTimers.forEach((timer) => clearInterval(timer));
+    this.streamSignalWatchdogTimers.clear();
     this.giveawayDomTimers.forEach((timer) => clearInterval(timer));
     this.giveawayDomTimers.clear();
     this.streamPages.clear();
     this.wsHookedStreamIds.clear();
+    this.cdpHookedStreamIds.clear();
     this.graphqlHookedStreamIds.clear();
   }
 
@@ -177,12 +202,20 @@ export class BrowserService {
     const apolloTimer = this.apolloRetryTimers.get(streamId);
     if (apolloTimer) clearInterval(apolloTimer);
     this.apolloRetryTimers.delete(streamId);
+    const watchdogTimer = this.streamSignalWatchdogTimers.get(streamId);
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    this.streamSignalWatchdogTimers.delete(streamId);
     const domTimer = this.giveawayDomTimers.get(streamId);
     if (domTimer) clearInterval(domTimer);
     this.giveawayDomTimers.delete(streamId);
     this.wsHookedStreamIds.delete(streamId);
+    this.cdpHookedStreamIds.delete(streamId);
     this.graphqlHookedStreamIds.delete(streamId);
-    if (clearState) this.giveawayStates.delete(streamId);
+    if (clearState) {
+      this.giveawayStates.delete(streamId);
+      this.giveawayNamesByStreamAndId.delete(streamId);
+      this.streamSignalHealth.delete(streamId);
+    }
   }
 
   async captureFeed(): Promise<{ imageDataUrl: string | null; currentUrl: string | null }> {
@@ -959,6 +992,7 @@ export class BrowserService {
             await this.attachGiveawayGraphQLListener(existingPage, stream);
             await this.refreshApolloGiveawayState(stream.streamId, existingPage).catch(() => undefined);
             this.startApolloGiveawayRetry(stream.streamId, existingPage);
+            this.startStreamSignalWatchdog(stream);
             return;
           }
         }
@@ -990,6 +1024,7 @@ export class BrowserService {
           await this.dismissStreamOverlays(page).catch(() => undefined);
           await this.refreshApolloGiveawayState(stream.streamId, page).catch(() => undefined);
           this.startApolloGiveawayRetry(stream.streamId, page);
+          this.startStreamSignalWatchdog(stream);
           void this.verifyStreamPage(page, stream);
           this.onBrowserEvent?.(`stream tab ready ${stream.streamer ?? stream.streamId}: ${stream.streamUrl}`);
           return;
@@ -1006,6 +1041,8 @@ export class BrowserService {
   }
 
   private async attachGiveawayWebSocketListener(page: Page, stream: FollowingFeedLiveStream): Promise<void> {
+    this.touchStreamSignal(stream, "attached");
+    await this.attachGiveawayCdpWebSocketListener(page, stream);
     if (this.wsHookedStreamIds.has(stream.streamId)) return;
     this.wsHookedStreamIds.add(stream.streamId);
 
@@ -1014,32 +1051,87 @@ export class BrowserService {
 
       socket.on("framereceived", (frame) => {
         const payloadText = typeof frame.payload === "string" ? frame.payload : frame.payload.toString();
-        this.logGiveawayWsFrameSummary(stream.streamId, stream.streamer, payloadText);
-        const giveawayState = this.extractGiveawayStateFromPhoenixFrame(stream.streamId, payloadText, "WS_PRIMARY");
-        if (!giveawayState) return;
-        const existing = this.giveawayStates.get(stream.streamId);
-        const event = this.readPhoenixFrameEvent(payloadText);
-        if (/^phx_reply$/i.test(event) && giveawayState.giveawayName && existing?.giveawayName) {
-          this.onBrowserEvent?.(`ignored giveaway WS ${stream.streamId}: event=${event}; reason=historical reply cannot replace active giveaway`);
-          return;
-        }
-        if (!giveawayState.giveawayName && existing?.giveawayName) {
-          const preservedState = {
-            ...giveawayState,
-            giveawayName: existing.giveawayName,
-            source: existing.source,
-            confidence: existing.confidence
-          };
-          this.setGiveawayState(stream.streamId, preservedState);
-          return;
-        }
-        this.setGiveawayState(stream.streamId, giveawayState);
-        this.logGiveawayStateChange(stream.streamId, stream.streamer, giveawayState);
-        if (giveawayState.active && giveawayState.giveawayId && !giveawayState.giveawayName) {
-          void this.refreshApolloGiveawayState(stream.streamId, page, giveawayState.giveawayId);
-        }
+        void this.handleGiveawayPhoenixFrame(page, stream, payloadText, "page-websocket");
       });
     });
+  }
+
+  private async attachGiveawayCdpWebSocketListener(page: Page, stream: FollowingFeedLiveStream): Promise<void> {
+    if (this.cdpHookedStreamIds.has(stream.streamId)) return;
+    this.cdpHookedStreamIds.add(stream.streamId);
+    const cdpContext = page.context() as unknown as {
+      newCDPSession?: (target: Page) => Promise<{
+        send: (method: string) => Promise<void>;
+        on: (event: string, callback: (payload: unknown) => void) => void;
+      }>;
+    };
+    const session = await cdpContext.newCDPSession?.(page).catch(() => null);
+    if (!session) return;
+    await session.send("Network.enable").catch(() => undefined);
+    session.on("Network.webSocketFrameReceived", (eventPayload) => {
+      const payloadText = (eventPayload as { response?: { payloadData?: unknown } })?.response?.payloadData;
+      if (typeof payloadText !== "string") return;
+      void this.handleGiveawayPhoenixFrame(page, stream, payloadText, "cdp-websocket");
+    });
+    this.onBrowserEvent?.(`stream signal CDP websocket hook attached ${stream.streamer ?? stream.streamId}`);
+  }
+
+  private async handleGiveawayPhoenixFrame(
+    page: Page,
+    stream: FollowingFeedLiveStream,
+    payloadText: string,
+    channel: string
+  ): Promise<void> {
+    this.touchStreamSignal(stream, "ws");
+    this.logGiveawayWsFrameSummary(stream.streamId, stream.streamer, payloadText);
+    const giveawayState = this.extractGiveawayStateFromPhoenixFrame(stream.streamId, payloadText, "WS_PRIMARY");
+    if (!giveawayState) return;
+    this.touchStreamSignal(stream, "giveaway");
+    const existing = this.giveawayStates.get(stream.streamId);
+    const event = this.readPhoenixFrameEvent(payloadText);
+    if (/^phx_reply$/i.test(event) && giveawayState.giveawayName && existing?.giveawayName) {
+      this.onBrowserEvent?.(`ignored giveaway WS ${stream.streamId}: event=${event}; reason=historical reply cannot replace active giveaway`);
+      return;
+    }
+
+    if (giveawayState.giveawayId && giveawayState.giveawayName) {
+      this.rememberGiveawayName(stream.streamId, giveawayState.giveawayId, giveawayState.giveawayName);
+    }
+
+    const rememberedName = giveawayState.giveawayId
+      ? this.giveawayNamesByStreamAndId.get(stream.streamId)?.get(giveawayState.giveawayId) ?? null
+      : null;
+    if (!giveawayState.giveawayName && rememberedName) {
+      this.setGiveawayState(stream.streamId, {
+        ...giveawayState,
+        giveawayName: rememberedName,
+        confidence: Math.max(giveawayState.confidence, 90)
+      });
+      this.logGiveawayStateChange(stream.streamId, stream.streamer, { ...giveawayState, giveawayName: rememberedName });
+      return;
+    }
+
+    if (
+      !giveawayState.giveawayName &&
+      existing?.giveawayName &&
+      (!giveawayState.giveawayId || !existing.giveawayId || giveawayState.giveawayId === existing.giveawayId)
+    ) {
+      const preservedState = {
+        ...giveawayState,
+        giveawayName: existing.giveawayName,
+        source: existing.source,
+        confidence: existing.confidence
+      };
+      this.setGiveawayState(stream.streamId, preservedState);
+      return;
+    }
+
+    this.setGiveawayState(stream.streamId, giveawayState);
+    this.logGiveawayStateChange(stream.streamId, stream.streamer, giveawayState);
+    if (giveawayState.active && (!giveawayState.giveawayName || giveawayState.giveawayId)) {
+      this.onBrowserEvent?.(`giveaway ${channel} ${stream.streamer ?? stream.streamId}: forcing Apollo refresh for ${giveawayState.giveawayId ?? "current giveaway"}`);
+      await this.refreshApolloGiveawayState(stream.streamId, page, giveawayState.giveawayId);
+    }
   }
 
   private readPhoenixFrameEvent(payloadText: string): string {
@@ -1064,11 +1156,15 @@ export class BrowserService {
         if (contentType && !/json/i.test(contentType)) return;
         const payload = await response.json().catch(() => null);
         if (!payload) return;
+        this.touchStreamSignal(stream, "graphql");
         const giveawayState = this.extractGiveawayStateFromGraphQLPayload(payload);
         if (!giveawayState) return;
         const existing = this.giveawayStates.get(stream.streamId);
         if (existing?.source === "WS_PRIMARY" && existing.giveawayName && !giveawayState.giveawayName) return;
         this.setGiveawayState(stream.streamId, giveawayState);
+        if (giveawayState.giveawayId && giveawayState.giveawayName) {
+          this.rememberGiveawayName(stream.streamId, giveawayState.giveawayId, giveawayState.giveawayName);
+        }
         if (giveawayState.giveawayName) {
           this.onBrowserEvent?.(`giveaway GraphQL ${stream.streamer ?? stream.streamId}: ${giveawayState.giveawayName}`);
         }
@@ -1082,9 +1178,64 @@ export class BrowserService {
       giveawayName: this.cleanGiveawayName(state.giveawayName)
     };
     this.giveawayStates.set(streamId, sanitizedState);
+    this.touchStreamSignalById(streamId, sanitizedState.giveawayName ? "stateName" : "state");
+    if (sanitizedState.giveawayId && sanitizedState.giveawayName) {
+      this.rememberGiveawayName(streamId, sanitizedState.giveawayId, sanitizedState.giveawayName);
+    }
     if (sanitizedState.giveawayName || sanitizedState.giveawayId || !sanitizedState.active) {
       this.onGiveawayState?.(streamId, sanitizedState);
     }
+  }
+
+  private rememberGiveawayName(streamId: string, giveawayId: string, giveawayName: string): void {
+    const cleanName = this.cleanGiveawayName(giveawayName);
+    if (!cleanName) return;
+    let namesById = this.giveawayNamesByStreamAndId.get(streamId);
+    if (!namesById) {
+      namesById = new Map<string, string>();
+      this.giveawayNamesByStreamAndId.set(streamId, namesById);
+    }
+    namesById.set(giveawayId, cleanName);
+    if (namesById.size > 40) {
+      const firstKey = namesById.keys().next().value as string | undefined;
+      if (firstKey) namesById.delete(firstKey);
+    }
+  }
+
+  private touchStreamSignal(stream: FollowingFeedLiveStream, signal: "attached" | "ws" | "giveaway" | "graphql" | "apollo" | "state" | "stateName"): void {
+    const now = Date.now();
+    const existing = this.streamSignalHealth.get(stream.streamId);
+    const next: StreamSignalHealth = existing ?? {
+      streamer: stream.streamer ?? stream.username ?? null,
+      streamUrl: stream.streamUrl,
+      lastAttachedAt: now,
+      lastWsFrameAt: null,
+      lastGiveawayFrameAt: null,
+      lastGraphqlAt: null,
+      lastApolloAt: null,
+      lastStateAt: null,
+      lastStateNameAt: null,
+      lastSelfHealAt: null
+    };
+    next.streamer = stream.streamer ?? next.streamer;
+    next.streamUrl = stream.streamUrl;
+    if (signal === "attached") next.lastAttachedAt = now;
+    if (signal === "ws") next.lastWsFrameAt = now;
+    if (signal === "giveaway") next.lastGiveawayFrameAt = now;
+    if (signal === "graphql") next.lastGraphqlAt = now;
+    if (signal === "apollo") next.lastApolloAt = now;
+    if (signal === "state" || signal === "stateName") next.lastStateAt = now;
+    if (signal === "stateName") next.lastStateNameAt = now;
+    this.streamSignalHealth.set(stream.streamId, next);
+  }
+
+  private touchStreamSignalById(streamId: string, signal: "apollo" | "state" | "stateName"): void {
+    const existing = this.streamSignalHealth.get(streamId);
+    if (!existing) return;
+    const now = Date.now();
+    if (signal === "apollo") existing.lastApolloAt = now;
+    if (signal === "state" || signal === "stateName") existing.lastStateAt = now;
+    if (signal === "stateName") existing.lastStateNameAt = now;
   }
 
   private cleanGiveawayName(name: string | null | undefined): string | null {
@@ -1463,8 +1614,8 @@ export class BrowserService {
 
   private async refreshApolloGiveawayState(streamId: string, page: Page, targetGiveawayId?: string | null): Promise<void> {
     const existing = this.giveawayStates.get(streamId);
-    if (existing?.source === "WS_PRIMARY" && existing.giveawayName) return;
     const giveawayIdToFind = targetGiveawayId ?? existing?.giveawayId ?? null;
+    this.touchStreamSignalById(streamId, "apollo");
 
     const apolloState = await page
       .evaluate((targetId) => {
@@ -1599,10 +1750,10 @@ export class BrowserService {
     }
     const nextState: GiveawayState = {
       active: true,
-      giveawayId: existing?.giveawayId ?? apolloState.giveawayId,
+      giveawayId: apolloState.giveawayId ?? existing?.giveawayId ?? null,
       giveawayName: apolloState.giveawayName,
-      source: "BROWSER_APOLLO",
-      confidence: 72,
+      source: existing?.source === "WS_PRIMARY" ? "WS_PRIMARY" : "BROWSER_APOLLO",
+      confidence: existing?.source === "WS_PRIMARY" ? Math.max(existing.confidence, 88) : 72,
       updatedAt: new Date().toISOString()
     };
     this.setGiveawayState(streamId, nextState);
@@ -1622,6 +1773,58 @@ export class BrowserService {
     };
     this.apolloRetryTimers.set(streamId, setInterval(() => void retry(), 2_000));
     void retry();
+  }
+
+  private startStreamSignalWatchdog(stream: FollowingFeedLiveStream): void {
+    if (this.streamSignalWatchdogTimers.has(stream.streamId)) return;
+
+    const watchdog = async () => {
+      const page = this.streamPages.get(stream.streamId);
+      if (!page || page.isClosed()) {
+        const timer = this.streamSignalWatchdogTimers.get(stream.streamId);
+        if (timer) clearInterval(timer);
+        this.streamSignalWatchdogTimers.delete(stream.streamId);
+        return;
+      }
+
+      const now = Date.now();
+      const health = this.streamSignalHealth.get(stream.streamId);
+      const state = this.giveawayStates.get(stream.streamId);
+      const attachedAgeMs = health ? now - health.lastAttachedAt : Number.POSITIVE_INFINITY;
+      const newestSignalAt = Math.max(
+        health?.lastWsFrameAt ?? 0,
+        health?.lastGraphqlAt ?? 0,
+        health?.lastApolloAt ?? 0,
+        health?.lastStateAt ?? 0
+      );
+      const signalAgeMs = newestSignalAt ? now - newestSignalAt : attachedAgeMs;
+      const nameAgeMs = health?.lastStateNameAt ? now - health.lastStateNameAt : Number.POSITIVE_INFINITY;
+      const selfHealAgeMs = health?.lastSelfHealAt ? now - health.lastSelfHealAt : Number.POSITIVE_INFINITY;
+      const missingCurrentName = !state?.giveawayName || !state.active;
+      const shouldForceRefresh = missingCurrentName || nameAgeMs > 45_000;
+      const shouldReopen = signalAgeMs > 90_000 && selfHealAgeMs > 60_000;
+
+      if (shouldForceRefresh) {
+        await this.refreshApolloGiveawayState(stream.streamId, page, state?.giveawayId).catch(() => undefined);
+      }
+
+      if (!shouldReopen) return;
+      const latestHealth = this.streamSignalHealth.get(stream.streamId);
+      if (latestHealth) latestHealth.lastSelfHealAt = now;
+      this.onBrowserEvent?.(
+        `stream signal self-heal ${stream.streamer ?? stream.streamId}: signalAge=${Math.round(signalAgeMs / 1000)}s nameAge=${Number.isFinite(nameAgeMs) ? Math.round(nameAgeMs / 1000) : "never"}s; reopening ${stream.streamUrl}`
+      );
+      this.clearStreamRuntime(stream.streamId, false);
+      await page.close().catch(() => undefined);
+      this.streamPages.delete(stream.streamId);
+      await this.openStreamPages([stream]).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.onBrowserEvent?.(`stream signal self-heal failed ${stream.streamer ?? stream.streamId}: ${message}`);
+      });
+    };
+
+    this.streamSignalWatchdogTimers.set(stream.streamId, setInterval(() => void watchdog(), 10_000));
+    void watchdog();
   }
 
   private startStreamPreview(streamId: string, stream: FollowingFeedLiveStream, page: Page): void {

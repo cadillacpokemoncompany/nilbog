@@ -444,7 +444,7 @@ export class Scanner {
         clickIntervalMs: latestCard.clickIntervalMs,
         thumbnailImageDataUrl: scannedCard.thumbnailImageDataUrl ?? latestCard.thumbnailImageDataUrl,
         giveawayName: giveawayState?.active
-          ? (cleanGiveawayName(giveawayState.giveawayName) ?? cleanGiveawayName(latestCard.giveawayName) ?? cleanGiveawayName(scannedCard.giveawayName))
+          ? (cleanGiveawayName(giveawayState.giveawayName) ?? cleanGiveawayName(scannedCard.giveawayName))
           : scannedCard.status === "offline" || scannedCard.status === "empty"
             ? null
             : (cleanGiveawayName(latestCard.giveawayName) ?? cleanGiveawayName(scannedCard.giveawayName)),

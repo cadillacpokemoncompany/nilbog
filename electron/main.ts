@@ -237,7 +237,8 @@ const tapConnectedDevices = async (
   devices: AdbDevice[],
   targetX: number,
   targetY: number,
-  context: string
+  context: string,
+  preferredUrl: string | null = null
 ): Promise<Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }>> => {
   const results: Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }> = [];
   const batchSize = 4;
@@ -247,12 +248,16 @@ const tapConnectedDevices = async (
     const batchResults = await Promise.all(
       batch.map(async (device) => {
         try {
+          await adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch((error) =>
+            debugLog(`${context} fullscreen prepare failed device=${device.id}: ${error instanceof Error ? error.message : String(error)}`)
+          );
           await adb.tap(device.id, targetX, targetY);
           await debugLog(`${context} coord tapped device=${device.id} x=${targetX} y=${targetY}`);
           return { deviceId: device.id, ok: true as const };
         } catch (firstError) {
           await new Promise((resolve) => setTimeout(resolve, 120));
           try {
+            await adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch(() => undefined);
             await adb.tap(device.id, targetX, targetY);
             await debugLog(`${context} coord tapped device=${device.id} x=${targetX} y=${targetY} retry=1`);
             return { deviceId: device.id, ok: true as const };
@@ -390,7 +395,8 @@ const startAutoClickerLoop = () => {
         devices,
         targetX,
         targetY,
-        `autoclicker slot=${card?.slot ?? "none"} streamer=${card?.streamer ?? ""}`
+        `autoclicker slot=${card?.slot ?? "none"} streamer=${card?.streamer ?? ""}`,
+        card?.resolvedUrl ?? null
       );
       const okCount = settled.filter((result) => result.ok).length;
       const failed = settled.find((result) => !result.ok);
@@ -559,7 +565,7 @@ const tapActiveCardOnce = async (reason: string): Promise<void> => {
 
   const targetX = scanner.state.autoClicker.targetX;
   const targetY = scanner.state.autoClicker.targetY;
-  await tapConnectedDevices(devices, targetX, targetY, `${reason} slot=${card?.slot ?? "none"} streamer=${card?.streamer ?? ""}`);
+  await tapConnectedDevices(devices, targetX, targetY, `${reason} slot=${card?.slot ?? "none"} streamer=${card?.streamer ?? ""}`, card?.resolvedUrl ?? null);
 };
 
 app.whenReady().then(async () => {
@@ -777,7 +783,8 @@ app.whenReady().then(async () => {
         devices,
         targetX,
         targetY,
-        `card:send initial slot=${slot} streamer=${card.streamer}`
+        `card:send initial slot=${slot} streamer=${card.streamer}`,
+        card.resolvedUrl
       );
       const okCount = settled.filter((result) => result.ok).length;
       const failed = settled.find((result) => !result.ok);
