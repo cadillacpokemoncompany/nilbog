@@ -211,7 +211,7 @@ function Invoke-WatchTick {
     } catch {
       return $false
     }
-    $_ -match "stream signal self-heal failed|auto update .*failed|discord notification failed|browser:launch failed|feed browser self-heal|stream tab failed|hash mismatch|auth failed|security check|TAP_STALE"
+    $_ -match "stream signal self-heal failed|auto update .*failed|discord notification failed|browser:launch failed|stream tab failed|hash mismatch|auth failed|security check|TAP_STALE"
   } | Select-Object -Last 20)
   if ($recentErrors.Count -gt 0) {
     Add-HealthIssue $issues "RECENT_DEBUG_ERRORS" "warning" ("Recent debug warnings/errors: " + (Short (($recentErrors | Select-Object -Last 3) -join " | ") 320))
