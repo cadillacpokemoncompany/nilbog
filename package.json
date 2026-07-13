@@ -1,6 +1,6 @@
 {
   "name": "nilboglite",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Lite packaged desktop controller for ADB devices and Whatnot streams.",
   "main": "dist-electron/electron/main.js",
   "private": true,
@@ -63,6 +63,18 @@
       {
         "from": "C:/Users/curti/AppData/Roaming/NilbogLite/nilbog-discord-webhook.txt",
         "to": "discord/nilbog-discord-webhook.txt"
+      },
+      {
+        "from": "scripts/nilbog-health-watcher.ps1",
+        "to": "watcher/nilbog-health-watcher.ps1"
+      },
+      {
+        "from": "scripts/setup-health-watcher.ps1",
+        "to": "watcher/setup-health-watcher.ps1"
+      },
+      {
+        "from": "scripts/Start-NilbogLite-Watcher.cmd",
+        "to": "watcher/Start-NilbogLite-Watcher.cmd"
       }
     ],
     "win": {

@@ -55,6 +55,8 @@ if ($IncludeBrowserProfile) {
 }
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "import-sync-kit.ps1") -Destination (Join-Path $syncRoot.FullName "Import-NilbogLite-Sync.ps1") -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "nilbog-health-watcher.ps1") -Destination (Join-Path $syncRoot.FullName "nilbog-health-watcher.ps1") -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "setup-health-watcher.ps1") -Destination (Join-Path $syncRoot.FullName "Setup-NilbogLite-Watcher.ps1") -Force
 
 $cmdPath = Join-Path $syncRoot.FullName "INSTALL_OR_SYNC_THIS_PC.cmd"
 $includeProfileArg = if ($IncludeBrowserProfile) { " -IncludeBrowserProfile" } else { "" }
@@ -64,6 +66,14 @@ cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Import-NilbogLite-Sync.ps1"%includeProfileArg%
 pause
 "@.Replace("%includeProfileArg%", $includeProfileArg)
+
+$watcherCmdPath = Join-Path $syncRoot.FullName "SETUP_WATCHER_ON_THIS_PC.cmd"
+Set-Content -LiteralPath $watcherCmdPath -Encoding ASCII -Value @"
+@echo off
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-NilbogLite-Watcher.ps1" -Discord
+pause
+"@
 
 $readmePath = Join-Path $syncRoot.FullName "README.txt"
 Set-Content -LiteralPath $readmePath -Encoding UTF8 -Value @"
@@ -79,6 +89,8 @@ This imports:
 - nilbog-discord-webhook.txt
 
 Browser auth/profile is optional. If it was included and auth still fails, sign in on that PC once.
+
+Run SETUP_WATCHER_ON_THIS_PC.cmd to register the lightweight health watcher at login.
 "@
 
 Write-Host "NilbogLite sync kit ready:"

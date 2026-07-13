@@ -1,5 +1,5 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AdbService } from "./adbService.js";
@@ -68,6 +68,37 @@ const readLocalDiscordWebhook = async (appDataDir: string): Promise<string> => {
   await mkdir(appDataDir, { recursive: true }).catch(() => undefined);
   await writeFile(appDataWebhookPath, bundledWebhook, "utf8").catch((error) => debugLog("discord webhook seed failed", error));
   return bundledWebhook;
+};
+
+const seedWatcherTools = async (appDataDir: string): Promise<void> => {
+  const watcherDir = join(appDataDir, "watcher");
+  await mkdir(watcherDir, { recursive: true }).catch(() => undefined);
+  const candidates = [
+    {
+      resource: join(process.resourcesPath ?? "", "watcher", "nilbog-health-watcher.ps1"),
+      target: join(watcherDir, "nilbog-health-watcher.ps1")
+    },
+    {
+      resource: join(process.resourcesPath ?? "", "watcher", "setup-health-watcher.ps1"),
+      target: join(watcherDir, "setup-health-watcher.ps1")
+    },
+    {
+      resource: join(process.resourcesPath ?? "", "watcher", "Start-NilbogLite-Watcher.cmd"),
+      target: join(watcherDir, "Start-NilbogLite-Watcher.cmd")
+    }
+  ];
+  for (const candidate of candidates) {
+    await copyFile(candidate.resource, candidate.target).catch(() => undefined);
+  }
+
+  const desktop = app.getPath("desktop");
+  const launcherPath = join(desktop, "Start NilbogLite Watcher.cmd");
+  const watcherPath = join(watcherDir, "nilbog-health-watcher.ps1");
+  await writeFile(
+    launcherPath,
+    `@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File "${watcherPath}" -Discord\r\npause\r\n`,
+    "utf8"
+  ).catch(() => undefined);
 };
 
 const createWindow = async () => {
@@ -570,6 +601,7 @@ const tapActiveCardOnce = async (reason: string): Promise<void> => {
 
 app.whenReady().then(async () => {
   const store = new ConfigStore();
+  await seedWatcherTools(store.appDataDir);
   snapshot = await store.load();
   adb = new AdbService();
   notifier = new NotificationService(debugLog, await readLocalDiscordWebhook(store.appDataDir));
