@@ -1,6 +1,6 @@
 {
   "name": "nilboglite",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Lite packaged desktop controller for ADB devices and Whatnot streams.",
   "main": "dist-electron/electron/main.js",
   "private": true,
