@@ -189,6 +189,7 @@ export class Scanner {
   private lastFeedHardRefreshAt = 0;
   private missingStreamCounts = new Map<string, number>();
   private ticking = false;
+  private tickStartedAt: number | null = null;
   private lastAutoNavKey: string | null = null;
 
   constructor(
@@ -232,6 +233,38 @@ export class Scanner {
       scanner: { ...this.snapshot.scanner, running: false }
     };
     void this.persistAndBroadcast();
+  }
+
+  forceRestart(reason: string): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.ticking = false;
+    this.tickStartedAt = null;
+    this.feedCycleStartedAt = 0;
+    this.snapshot = {
+      ...this.snapshot,
+      scanner: { ...this.snapshot.scanner, running: true },
+      autoClicker: {
+        ...this.snapshot.autoClicker,
+        activityLog: this.appendActivityLog(this.snapshot.autoClicker.activityLog, "currentTask", `SCANNER WATCHDOG: ${reason}`),
+        lastAction: `Scanner watchdog restarted scanner: ${reason}`,
+        lastActionAt: new Date().toISOString()
+      }
+    };
+    this.timer = setInterval(() => void this.tick(), DEVICE_SCAN_MS);
+    void this.persistAndBroadcast();
+    void this.tick();
+  }
+
+  get health(): { running: boolean; ticking: boolean; tickStartedAt: number | null; lastTickAt: string | null } {
+    return {
+      running: Boolean(this.timer),
+      ticking: this.ticking,
+      tickStartedAt: this.tickStartedAt,
+      lastTickAt: this.snapshot.scanner.lastTickAt
+    };
   }
 
   applyGiveawayState(streamId: string, state: GiveawayState): void {
@@ -285,6 +318,7 @@ export class Scanner {
   private async tick(): Promise<void> {
     if (this.ticking) return;
     this.ticking = true;
+    this.tickStartedAt = Date.now();
 
     try {
       const now = Date.now();
@@ -493,6 +527,7 @@ export class Scanner {
       await this.persistAndBroadcast();
     } finally {
       this.ticking = false;
+      this.tickStartedAt = null;
     }
   }
 

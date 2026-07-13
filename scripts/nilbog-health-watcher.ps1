@@ -150,6 +150,15 @@ function Invoke-WatchTick {
   $lastTapAge = AgeSeconds $clicker.adbHealth.lastTapAt
   $lastScanAge = AgeSeconds $scanner.lastTickAt
   $lastFeedAge = AgeSeconds $browser.lastFeedAt
+  $lastActionAge = AgeSeconds $clicker.lastActionAt
+  $lastUpdateSuccessAge = AgeSeconds $clicker.updateHealth.lastSuccessAt
+  $freshLiveResolveCount = 0
+  foreach ($card in $liveCards) {
+    $resolvedAge = AgeSeconds $card.lastResolvedAt
+    if ($resolvedAge -ne $null -and $resolvedAge -le 120) {
+      $freshLiveResolveCount += 1
+    }
+  }
   $enabled = [bool]$clicker.enabled
   $intervalMs = NumberOrZero $clicker.intervalMs
   $expectedTapMaxAge = [math]::Max(20, [math]::Ceiling(($intervalMs / 1000) * 3))
@@ -166,7 +175,7 @@ function Invoke-WatchTick {
   if ($snapshot -and -not [bool]$browser.authenticated) {
     Add-HealthIssue $issues "BROWSER_NOT_AUTHED" "warning" "Browser is not marked authenticated"
   }
-  if ($snapshot -and $lastFeedAge -ne $null -and $lastFeedAge -gt 180) {
+  if ($snapshot -and $lastFeedAge -ne $null -and $lastFeedAge -gt 180 -and ($lastScanAge -eq $null -or $lastScanAge -gt 90) -and $freshLiveResolveCount -le 0) {
     Add-HealthIssue $issues "FEED_STALE" "warning" "Followed feed image/data is $lastFeedAge seconds old"
   }
   if ($snapshot -and $enabled -and $selectedConnected -le 0) {
@@ -175,10 +184,12 @@ function Invoke-WatchTick {
   if ($snapshot -and $enabled -and $lastTapAge -ne $null -and $lastTapAge -gt $expectedTapMaxAge) {
     Add-HealthIssue $issues "TAP_STALE" "critical" "Autoplay is running but last tap was $lastTapAge seconds ago; expected under $expectedTapMaxAge"
   }
-  if ($snapshot -and $clicker.adbHealth.lastError) {
-    Add-HealthIssue $issues "ADB_HEALTH_ERROR" "warning" ("ADB health error: " + (Short $clicker.adbHealth.lastError))
+  $adbLastError = [string]$clicker.adbHealth.lastError
+  $isRetiredAccountSwitchError = $adbLastError -match "Continue with Google|sign out|account"
+  if ($snapshot -and $adbLastError -and -not $isRetiredAccountSwitchError -and ($enabled -or ($lastActionAge -ne $null -and $lastActionAge -lt 600))) {
+    Add-HealthIssue $issues "ADB_HEALTH_ERROR" "warning" ("ADB health error: " + (Short $adbLastError))
   }
-  if ($snapshot -and $clicker.updateHealth.status -eq "error") {
+  if ($snapshot -and $clicker.updateHealth.status -eq "error" -and ($lastUpdateSuccessAge -eq $null -or $lastUpdateSuccessAge -gt 1800)) {
     Add-HealthIssue $issues "UPDATE_ERROR" "warning" ("Update error: " + (Short $clicker.updateHealth.lastError))
   }
   if ($snapshot -and $clicker.updateHealth.status -eq "pending") {
@@ -191,8 +202,16 @@ function Invoke-WatchTick {
     }
   }
 
+  $freshDebugCutoff = (Get-Date).AddMinutes(-5)
   $recentErrors = @($debugTail | Where-Object {
-    $_ -match "stream signal self-heal|auto update .*failed|discord notification failed|browser.*failed|feed browser self-heal|stream tab failed|hash mismatch|auth|security check|TAP_STALE|Whatnot not foreground"
+    if ($_ -notmatch "^\[(.+?)\]") { return $false }
+    try {
+      $lineAt = [datetime]$Matches[1]
+      if ($lineAt -lt $freshDebugCutoff) { return $false }
+    } catch {
+      return $false
+    }
+    $_ -match "stream signal self-heal failed|auto update .*failed|discord notification failed|browser:launch failed|feed browser self-heal|stream tab failed|hash mismatch|auth failed|security check|TAP_STALE"
   } | Select-Object -Last 20)
   if ($recentErrors.Count -gt 0) {
     Add-HealthIssue $issues "RECENT_DEBUG_ERRORS" "warning" ("Recent debug warnings/errors: " + (Short (($recentErrors | Select-Object -Last 3) -join " | ") 320))
@@ -228,6 +247,8 @@ function Invoke-WatchTick {
       targetY = $clicker.targetY
       lastTapAt = $clicker.adbHealth.lastTapAt
       lastTapAgeSeconds = $lastTapAge
+      lastActionAt = $clicker.lastActionAt
+      lastActionAgeSeconds = $lastActionAge
       lastTapDevice = $clicker.adbHealth.lastTapDevice
       lastTapOk = $clicker.adbHealth.lastTapOk
       lastError = $clicker.adbHealth.lastError

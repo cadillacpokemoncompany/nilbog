@@ -36,6 +36,7 @@ let autoClickerTimer: NodeJS.Timeout | null = null;
 let autoClickerWatchdogTimer: NodeJS.Timeout | null = null;
 let deviceWatcherTimer: NodeJS.Timeout | null = null;
 let winnerWatcherTimer: NodeJS.Timeout | null = null;
+let scannerWatchdogTimer: NodeJS.Timeout | null = null;
 let deviceWatcherRunning = false;
 let winnerWatcherRunning = false;
 let shutdownStarted = false;
@@ -182,6 +183,12 @@ const stopWinnerWatcherLoop = () => {
   if (!winnerWatcherTimer) return;
   clearInterval(winnerWatcherTimer);
   winnerWatcherTimer = null;
+};
+
+const stopScannerWatchdogLoop = () => {
+  if (!scannerWatchdogTimer) return;
+  clearInterval(scannerWatchdogTimer);
+  scannerWatchdogTimer = null;
 };
 
 const clickerIsStopped = (): boolean => !scanner?.state.autoClicker.enabled && !scanner?.state.autoClicker.autoNavEnabled;
@@ -349,6 +356,7 @@ const shutdownRuntime = async (reason: string): Promise<void> => {
   stopAutoClickerWatchdogLoop();
   stopDeviceWatcherLoop();
   stopWinnerWatcherLoop();
+  stopScannerWatchdogLoop();
   autoUpdater?.stop();
   await debugLog(`runtime shutdown: ${reason}`);
 
@@ -579,6 +587,24 @@ const startWinnerWatcherLoop = () => {
   };
 
   winnerWatcherTimer = setInterval(() => void watcherTick(), 2_500);
+};
+
+const startScannerWatchdogLoop = () => {
+  stopScannerWatchdogLoop();
+  scannerWatchdogTimer = setInterval(() => {
+    if (shutdownStarted || !scanner) return;
+    const health = scanner.health;
+    const now = Date.now();
+    const lastTickAgeMs = health.lastTickAt ? now - Date.parse(health.lastTickAt) : Number.POSITIVE_INFINITY;
+    const activeTickAgeMs = health.tickStartedAt ? now - health.tickStartedAt : 0;
+    if (activeTickAgeMs > 90_000 || lastTickAgeMs > 120_000) {
+      const reason = activeTickAgeMs > 90_000
+        ? `active tick stuck ${Math.round(activeTickAgeMs / 1000)}s`
+        : `last tick stale ${Number.isFinite(lastTickAgeMs) ? Math.round(lastTickAgeMs / 1000) : "never"}s`;
+      void debugLog(`scanner watchdog restart: ${reason}`);
+      scanner.forceRestart(reason);
+    }
+  }, 15_000);
 };
 
 const tapActiveCardOnce = async (reason: string): Promise<void> => {
@@ -836,6 +862,7 @@ app.whenReady().then(async () => {
 
   await createWindow();
   scanner.start();
+  startScannerWatchdogLoop();
   startAutoClickerWatchdogLoop();
   startDeviceWatcherLoop();
   startWinnerWatcherLoop();
