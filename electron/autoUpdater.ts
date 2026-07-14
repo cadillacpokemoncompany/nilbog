@@ -66,6 +66,31 @@ const readUrlText = async (url: string): Promise<string | null> => {
   return response.text();
 };
 
+const githubLatestApiUrl = (manifestUrl: string): string | null => {
+  const match = manifestUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases\/latest\/download\/latest\.json$/i);
+  if (!match) return null;
+  return `https://api.github.com/repos/${match[1]}/${match[2]}/releases/latest`;
+};
+
+const readGitHubLatestAssetText = async (manifestUrl: string): Promise<string | null> => {
+  const apiUrl = githubLatestApiUrl(manifestUrl);
+  if (!apiUrl) return null;
+  const response = await fetch(apiUrl, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "cache-control": "no-cache",
+      "user-agent": "NilbogLite-Updater"
+    }
+  }).catch(() => null);
+  if (!response?.ok) return null;
+  const release = (await response.json().catch(() => null)) as { assets?: Array<{ name?: string; browser_download_url?: string }> } | null;
+  const manifestAssetUrl = release?.assets?.find((asset) => asset.name === "latest.json")?.browser_download_url;
+  return manifestAssetUrl ? readUrlText(manifestAssetUrl) : null;
+};
+
+const readManifestText = async (manifestUrl: string): Promise<string | null> =>
+  (await readUrlText(manifestUrl)) ?? (await readGitHubLatestAssetText(manifestUrl));
+
 const downloadUrlToFile = async (url: string, path: string): Promise<boolean> => {
   const response = await fetch(url, {
     headers: {
@@ -132,7 +157,7 @@ export class AutoUpdaterService {
       const manifestLocation = source.kind === "url" ? source.manifestUrl : join(source.sourcePath, "latest.json");
       const manifestText =
         source.kind === "url"
-          ? await readUrlText(manifestLocation)
+          ? await readManifestText(manifestLocation)
           : await readFile(manifestLocation, "utf8").catch(() => null);
       if (!manifestText) {
         await this.updateHealth({
