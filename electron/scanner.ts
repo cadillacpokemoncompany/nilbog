@@ -139,12 +139,15 @@ type RouteResult =
 const routeDevicesParallel = async (
   adb: AdbService,
   devices: AdbDevice[],
-  url: string
+  url: string,
+  forceFresh = false
 ): Promise<RouteResult[]> => {
+  const expectedUuid = url.match(/\/live\/([0-9a-f-]{36})/i)?.[1]?.toLowerCase() ?? null;
   const firstPass = await Promise.all(
     devices.map(async (device): Promise<RouteResult> => {
       try {
-        await adb.openUrl(device.id, url);
+        if (forceFresh) await adb.openUrlFresh(device.id, url);
+        else await adb.openUrl(device.id, url);
         return { deviceId: device.id, ok: true, retried: false };
       } catch (error) {
         return {
@@ -163,12 +166,16 @@ const routeDevicesParallel = async (
       const first = firstPass.find((result) => result.deviceId === device.id);
       if (first && !first.ok) return first;
       const foreground = await adb.getForegroundPackage(device.id).catch(() => null);
-      return foreground === WHATNOT_PACKAGE
+      const currentUuid = expectedUuid ? await adb.getCurrentWhatnotStreamUuid(device.id).catch(() => null) : null;
+      const uuidMatches = !expectedUuid || !currentUuid || currentUuid === expectedUuid;
+      return foreground === WHATNOT_PACKAGE && uuidMatches
         ? { deviceId: device.id, ok: true, retried: false }
         : {
             deviceId: device.id,
             ok: false,
-            message: `Whatnot not foreground after route (${foreground ?? "unknown"})`,
+            message: foreground !== WHATNOT_PACKAGE
+              ? `Whatnot not foreground after route (${foreground ?? "unknown"})`
+              : `Wrong stream UUID after route (${currentUuid ?? "unknown"}; expected ${expectedUuid})`,
             retried: false
           };
     })
@@ -176,18 +183,22 @@ const routeDevicesParallel = async (
   const retryDevices = devices.filter((device) => verifyResults.some((result) => result && !result.ok && result.deviceId === device.id));
   if (!retryDevices.length) return verifyResults.filter((result): result is RouteResult => Boolean(result));
 
-  await Promise.allSettled(retryDevices.map((device) => adb.openUrl(device.id, url)));
+  await Promise.allSettled(retryDevices.map((device) => adb.openUrlFresh(device.id, url)));
   await new Promise((resolve) => setTimeout(resolve, ROUTE_RETRY_VERIFY_DELAY_MS));
   const retryResults = await Promise.all(
     retryDevices.map(async (device): Promise<RouteResult> => {
     try {
       const foreground = await adb.getForegroundPackage(device.id).catch(() => null);
-      return foreground === WHATNOT_PACKAGE
+      const currentUuid = expectedUuid ? await adb.getCurrentWhatnotStreamUuid(device.id).catch(() => null) : null;
+      const uuidMatches = !expectedUuid || !currentUuid || currentUuid === expectedUuid;
+      return foreground === WHATNOT_PACKAGE && uuidMatches
         ? { deviceId: device.id, ok: true, retried: true }
         : {
             deviceId: device.id,
             ok: false,
-            message: `Whatnot not foreground after retry (${foreground ?? "unknown"})`,
+            message: foreground !== WHATNOT_PACKAGE
+              ? `Whatnot not foreground after retry (${foreground ?? "unknown"})`
+              : `Wrong stream UUID after retry (${currentUuid ?? "unknown"}; expected ${expectedUuid})`,
             retried: true
           };
     } catch (error) {
@@ -591,7 +602,8 @@ export class Scanner {
     const runtimeState = this.snapshot.autoClicker.dryRun ? "DRY_RUN" : targetIsFallback ? "NO_MATCH" : "MATCHED";
     const runtimeDetail = targetIsFallback ? `${decision.detail}; staying on KrakenHits` : decision.detail;
     const nextKey = [target.slot, target.resolvedUrl, targetIsFallback ? "fallback" : "match"].join(":");
-    const shouldReassertRoute = nextKey !== this.lastAutoNavKey || Date.now() - this.lastAutoNavAt >= ROUTE_REASSERT_MS;
+    const targetChanged = nextKey !== this.lastAutoNavKey;
+    const shouldReassertRoute = targetChanged || Date.now() - this.lastAutoNavAt >= ROUTE_REASSERT_MS;
     const routeCandidates = this.snapshot.autoClicker.dryRun || shouldReassertRoute ? connectedDevices : [];
     const skippedAlreadyOnTarget = connectedDevices.length - routeCandidates.length;
 
@@ -616,7 +628,7 @@ export class Scanner {
           )
         }
       };
-      const routeResults = await routeDevicesParallel(this.adb, routeCandidates, target.resolvedUrl);
+      const routeResults = await routeDevicesParallel(this.adb, routeCandidates, target.resolvedUrl, targetChanged);
       routedCount = routeResults.filter((result) => result.ok).length;
       const routeCompletedAt = new Date().toISOString();
       const okIds = routeResults.filter((result) => result.ok).map((result) => result.deviceId);

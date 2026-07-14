@@ -130,7 +130,9 @@ const createHarness = ({ foregroundSequence = [] } = {}) => {
   const foregroundChecks = [...foregroundSequence];
   const adb = {
     openUrl: async (deviceId, url) => calls.push({ type: "openUrl", deviceId, url }),
+    openUrlFresh: async (deviceId, url) => calls.push({ type: "openUrl", deviceId, url, fresh: true }),
     getForegroundPackage: async () => foregroundChecks.shift() ?? "com.whatnot_mobile",
+    getCurrentWhatnotStreamUuid: async () => null,
     prepareFullscreenWhatnot: async (deviceId) => calls.push({ type: "fullscreen", deviceId }),
     parkWhatnotOnHome: async (deviceId) => {
       calls.push({ type: "park", deviceId });

@@ -463,10 +463,16 @@ const startDeviceWatcherLoop = () => {
           const foregroundPackage = await adb.getForegroundPackage(device.id).catch(() => null);
 
           if (target?.resolvedUrl) {
-            if (foregroundPackage === whatnotPackage) return;
-            await adb.openUrl(device.id, target.resolvedUrl);
+            const expectedUuid = target.streamUuid?.toLowerCase() ?? null;
+            const currentUuid = expectedUuid ? await adb.getCurrentWhatnotStreamUuid(device.id).catch(() => null) : null;
+            if (foregroundPackage === whatnotPackage && (!expectedUuid || !currentUuid || currentUuid === expectedUuid)) return;
+            if (currentUuid && expectedUuid && currentUuid !== expectedUuid) {
+              await adb.openUrlFresh(device.id, target.resolvedUrl);
+            } else {
+              await adb.openUrl(device.id, target.resolvedUrl);
+            }
             await debugLog(
-              `device watcher redirected device=${device.id} target=${target.streamer} previousForeground=${foregroundPackage ?? "unknown"}`
+              `device watcher redirected device=${device.id} target=${target.streamer} previousForeground=${foregroundPackage ?? "unknown"} previousUuid=${currentUuid ?? "unknown"} expectedUuid=${expectedUuid ?? "unknown"}`
             );
             return;
           }

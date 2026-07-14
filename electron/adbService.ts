@@ -114,8 +114,7 @@ export class AdbService {
     const tapX = String(Math.round(x));
     const tapY = String(Math.round(y));
     return execFileAsync(adbExecutable(), ["-s", deviceId, "shell", "input", "tap", tapX, tapY], {
-      windowsHide: true,
-      timeout: 2_500
+      windowsHide: true
     });
   }
 
@@ -533,6 +532,11 @@ export class AdbService {
     });
   }
 
+  async openUrlFresh(deviceId: string, url: string): Promise<void> {
+    await this.shell(deviceId, ["am", "force-stop", whatnotPackage]).catch(() => undefined);
+    await this.openUrl(deviceId, url);
+  }
+
   async launchWhatnot(deviceId: string): Promise<void> {
     await this.prepareControlDisplay(deviceId);
     await this.shell(deviceId, ["monkey", "-p", whatnotPackage, "-c", "android.intent.category.LAUNCHER", "1"]);
@@ -583,6 +587,18 @@ export class AdbService {
     const window = await this.shell(deviceId, ["dumpsys", "window"]).catch(() => ({ stdout: "", stderr: "" }));
     const windowMatch = window.stdout.match(/(?:mCurrentFocus|mFocusedApp)=.*?\s([a-zA-Z0-9_.]+)\/[^\s}]+/);
     return windowMatch?.[1] ?? null;
+  }
+
+  async getCurrentWhatnotStreamUuid(deviceId: string): Promise<string | null> {
+    const outputs = await Promise.all([
+      this.shell(deviceId, ["dumpsys", "activity", "top"]).catch(() => ({ stdout: "", stderr: "" })),
+      this.shell(deviceId, ["dumpsys", "activity", "activities"]).catch(() => ({ stdout: "", stderr: "" }))
+    ]);
+    for (const output of outputs) {
+      const match = output.stdout.match(/whatnot\.com\/live\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+      if (match?.[1]) return match[1].toLowerCase();
+    }
+    return null;
   }
 
   async prepareFullscreenWhatnot(deviceId: string): Promise<void> {
