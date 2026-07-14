@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Pause, Play } from "lucide-react";
+import { Download, Pause, Play } from "lucide-react";
 import { createDefaultKeywordRules, type AppSnapshot, type StreamCard } from "../electron/types";
 import { nilbogApi } from "./nilbogApi";
 import "./styles/app.css";
@@ -160,6 +160,22 @@ export default function App() {
   };
   const clickerRunning = snapshot.autoClicker.enabled || snapshot.autoClicker.autoNavEnabled;
   const hasClickerSettings = snapshot.autoClicker.targetX > 0 && snapshot.autoClicker.targetY > 0 && snapshot.autoClicker.intervalMs > 0;
+  const updateHealth = snapshot.autoClicker.updateHealth;
+  const updateReady = ["available", "downloaded", "pending"].includes(updateHealth.status);
+  const updateBusy = ["checking", "installing"].includes(updateHealth.status);
+  const updateLabel =
+    updateHealth.status === "current"
+      ? `Current ${updateHealth.currentVersion}`
+      : updateReady
+        ? `Update ${updateHealth.latestVersion ?? ""}`.trim()
+        : updateHealth.status === "error"
+          ? "Update error"
+          : updateBusy
+            ? updateHealth.status
+            : "No update";
+  const requestUpdateInstall = () => {
+    void nilbogApi.installLatestUpdate().then(setSnapshot);
+  };
   const deviceRuntimeSummary = useMemo(() => {
     const runtime = snapshot.autoClicker.deviceRuntime;
     const ready = runtime.filter((device) => device.status === "connected" && device.phase !== "failed").length;
@@ -283,10 +299,22 @@ export default function App() {
         </aside>
 
         <aside className="control-tile">
-          <div className="brand-row">
-            <div>
-              <h1>Clicker Control</h1>
+          <div className={`update-panel ${updateReady ? "is-ready" : ""} ${updateHealth.status === "error" ? "is-error" : ""}`}>
+            <div className="update-copy">
+              <span>Updates</span>
+              <strong>{updateLabel}</strong>
+              <em>
+                {updateHealth.lastCheckedAt ? `Checked ${formatLogTime(updateHealth.lastCheckedAt)}` : "Waiting"}
+              </em>
             </div>
+            <button
+              className="update-button"
+              disabled={updateBusy || updateHealth.status === "current"}
+              onClick={requestUpdateInstall}
+              title="Stop everything and update"
+            >
+              <Download size={12} />
+            </button>
           </div>
 
           <div className="clicker-profile-stack">
@@ -312,6 +340,7 @@ export default function App() {
             </div>
           </div>
 
+          <h1 className="clicker-control-title">Clicker Control</h1>
           <div className="autoclicker-actions">
             <button
               className="auto-button start-button"

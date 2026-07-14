@@ -10,6 +10,7 @@ declare global {
       updateAutoClicker: (patch: Partial<AutoClickerSettings>) => Promise<AppSnapshot>;
       updateKeywordScoring: (rules: KeywordScoreRule[]) => Promise<AppSnapshot>;
       sendCardToDevices: (slot: number) => Promise<AppSnapshot>;
+      installLatestUpdate: () => Promise<AppSnapshot>;
       onSnapshot: (listener: (snapshot: AppSnapshot) => void) => () => void;
       onStreamPreviewFrame: (listener: (frame: { streamId: string; imageDataUrl: string | null }) => void) => () => void;
     };

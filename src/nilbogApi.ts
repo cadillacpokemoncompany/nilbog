@@ -143,6 +143,17 @@ const createPreviewApi = () => {
         keywordScoring: { rules }
       }),
     sendCardToDevices: () => Promise.resolve(snapshot),
+    installLatestUpdate: () =>
+      commit({
+        ...snapshot,
+        autoClicker: {
+          ...snapshot.autoClicker,
+          updateHealth: {
+            ...snapshot.autoClicker.updateHealth,
+            status: "checking"
+          }
+        }
+      }),
     onSnapshot: (listener: (next: AppSnapshot) => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

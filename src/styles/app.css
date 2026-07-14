@@ -82,7 +82,7 @@ input[type="number"]::-webkit-outer-spin-button {
   position: relative;
   grid-column: span 1;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .status-tile {
@@ -787,8 +787,8 @@ input[type="number"]::-webkit-outer-spin-button {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 4px;
-  margin-top: auto;
-  margin-bottom: 4px;
+  margin-top: 0;
+  margin-bottom: auto;
   min-width: 0;
 }
 
@@ -837,6 +837,100 @@ input[type="number"]::-webkit-outer-spin-button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
+}
+
+.update-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  gap: 4px;
+  align-items: stretch;
+  min-height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 5px;
+}
+
+.update-panel.is-ready {
+  border-color: rgba(56, 217, 130, 0.42);
+  background: rgba(44, 145, 94, 0.13);
+}
+
+.update-panel.is-error {
+  border-color: rgba(231, 90, 83, 0.46);
+  background: rgba(177, 62, 64, 0.12);
+}
+
+.update-copy {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.update-copy span,
+.update-copy strong,
+.update-copy em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-copy span {
+  color: #aeb8c2;
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.update-copy strong {
+  margin-top: 3px;
+  color: #f7fbff;
+  font-size: 9px;
+  font-weight: 840;
+  line-height: 1.05;
+  text-transform: uppercase;
+}
+
+.update-copy em {
+  margin-top: 2px;
+  color: #9faab5;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 720;
+}
+
+.update-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-width: 24px;
+  height: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 7px;
+  color: #f7fbff;
+  background: rgba(116, 72, 181, 0.88);
+  padding: 0;
+  cursor: pointer;
+}
+
+.update-button:hover:not(:disabled) {
+  background: rgba(133, 84, 206, 0.96);
+}
+
+.update-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.clicker-control-title {
+  margin: 0;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 820;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
 }
 
 .auto-button {

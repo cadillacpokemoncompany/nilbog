@@ -802,6 +802,25 @@ app.whenReady().then(async () => {
     });
     return scanner.state;
   });
+  ipcMain.handle("update:install-latest", async () => {
+    stopAutoClickerLoop();
+    await debugLog("manual update requested");
+    await scanner.setState({
+      ...scanner.state,
+      autoClicker: {
+        ...scanner.state.autoClicker,
+        enabled: false,
+        autoNavEnabled: false,
+        runtimeState: "OFF",
+        runtimeDetail: "Stopping controls for update",
+        activityLog: appendActivityLog(scanner.state.autoClicker.activityLog, "currentTask", "UPDATE: manual latest update requested"),
+        lastAction: "Manual update requested",
+        lastActionAt: new Date().toISOString()
+      }
+    });
+    void autoUpdater.check();
+    return scanner.state;
+  });
   ipcMain.handle("card:send-to-devices", async (_event, slot: number) => {
     if (!scanner.state.autoClicker.enabled) return scanner.state;
     const card = scanner.state.cards.find((candidate) => candidate.slot === slot);

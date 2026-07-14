@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("nilbog", {
   updateKeywordScoring: (rules: KeywordScoreRule[]) =>
     ipcRenderer.invoke("keyword-scoring:update", rules) as Promise<AppSnapshot>,
   sendCardToDevices: (slot: number) => ipcRenderer.invoke("card:send-to-devices", slot) as Promise<AppSnapshot>,
+  installLatestUpdate: () => ipcRenderer.invoke("update:install-latest") as Promise<AppSnapshot>,
   onSnapshot: (listener: (snapshot: AppSnapshot) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, snapshot: AppSnapshot) => listener(snapshot);
     ipcRenderer.on("snapshot", wrapped);

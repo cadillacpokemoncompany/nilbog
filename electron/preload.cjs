@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("nilbog", {
   updateAutoClicker: (patch) => ipcRenderer.invoke("autoclicker:update", patch),
   updateKeywordScoring: (rules) => ipcRenderer.invoke("keyword-scoring:update", rules),
   sendCardToDevices: (slot) => ipcRenderer.invoke("card:send-to-devices", slot),
+  installLatestUpdate: () => ipcRenderer.invoke("update:install-latest"),
   onSnapshot: (listener) => {
     const wrapped = (_event, snapshot) => listener(snapshot);
     ipcRenderer.on("snapshot", wrapped);
