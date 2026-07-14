@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { UpdateHealth } from "./types.js";
 
@@ -49,10 +49,6 @@ const sha256File = async (path: string): Promise<string> => {
   const data = await readFile(path);
   return createHash("sha256").update(data).digest("hex");
 };
-
-type UpdateSource =
-  | { kind: "url"; manifestUrl: string }
-  | { kind: "directory"; sourcePath: string };
 
 const isHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value);
 
@@ -144,21 +140,8 @@ export class AutoUpdaterService {
         return;
       }
 
-      const source = await this.resolveSource();
-      if (!source) {
-        await this.updateHealth({
-          status: "disabled",
-          lastError: "No update source configured"
-        });
-        await this.options.logger("auto update skipped: no update source configured");
-        return;
-      }
-
-      const manifestLocation = source.kind === "url" ? source.manifestUrl : join(source.sourcePath, "latest.json");
-      const manifestText =
-        source.kind === "url"
-          ? await readManifestText(manifestLocation)
-          : await readFile(manifestLocation, "utf8").catch(() => null);
+      const manifestLocation = await this.resolveManifestUrl();
+      const manifestText = await readManifestText(manifestLocation);
       if (!manifestText) {
         await this.updateHealth({
           status: "error",
@@ -200,37 +183,19 @@ export class AutoUpdaterService {
       await mkdir(downloadDir, { recursive: true });
       let localInstaller: string;
 
-      if (source.kind === "url") {
-        const installerUrl = isHttpUrl(manifest.installer)
-          ? manifest.installer
-          : new URL(manifest.installer, manifestLocation).toString();
-        localInstaller = join(downloadDir, basename(new URL(installerUrl).pathname) || `NilbogLite Setup ${manifest.version}.exe`);
-        const downloaded = await downloadUrlToFile(installerUrl, localInstaller);
-        if (!downloaded) {
-          await this.updateHealth({
-            status: "error",
-            latestVersion: manifest.version,
-            lastError: `Installer download failed ${installerUrl}`
-          });
-          await this.options.logger(`auto update skipped: installer download failed ${installerUrl}`);
-          return;
-        }
-      } else {
-        const sourceInstaller = isAbsolute(manifest.installer)
-          ? manifest.installer
-          : resolve(source.sourcePath, manifest.installer);
-        const sourceStat = await stat(sourceInstaller).catch(() => null);
-        if (!sourceStat?.isFile()) {
-          await this.updateHealth({
-            status: "error",
-            latestVersion: manifest.version,
-            lastError: `Installer missing ${sourceInstaller}`
-          });
-          await this.options.logger(`auto update skipped: installer missing ${sourceInstaller}`);
-          return;
-        }
-        localInstaller = join(downloadDir, basename(sourceInstaller));
-        await copyFile(sourceInstaller, localInstaller);
+      const installerUrl = isHttpUrl(manifest.installer)
+        ? manifest.installer
+        : new URL(manifest.installer, manifestLocation).toString();
+      localInstaller = join(downloadDir, basename(new URL(installerUrl).pathname) || `NilbogLite Setup ${manifest.version}.exe`);
+      const downloaded = await downloadUrlToFile(installerUrl, localInstaller);
+      if (!downloaded) {
+        await this.updateHealth({
+          status: "error",
+          latestVersion: manifest.version,
+          lastError: `Installer download failed ${installerUrl}`
+        });
+        await this.options.logger(`auto update skipped: installer download failed ${installerUrl}`);
+        return;
       }
 
       if (manifest.sha256) {
@@ -298,26 +263,20 @@ export class AutoUpdaterService {
     this.options.quit();
   }
 
-  private async resolveSource(): Promise<UpdateSource | null> {
+  private async resolveManifestUrl(): Promise<string> {
     const candidates = [
       process.env.NILBOG_UPDATE_URL,
-      process.env.NILBOG_UPDATE_SHARE,
       await readFile(join(this.options.userDataPath, "nilbog-update-source.txt"), "utf8").catch(() => null),
-      GITHUB_UPDATE_MANIFEST_URL,
-      "\\\\LAPTOP-O427DMDT\\NilbogUpdates",
-      "\\\\192.168.1.90\\NilbogUpdates",
-      "C:\\NilbogUpdates"
+      GITHUB_UPDATE_MANIFEST_URL
     ];
 
     for (const candidate of candidates) {
       const trimmed = candidate?.trim();
       if (!trimmed) continue;
       const resolved = trimmed.replace(/^"|"$/g, "");
-      if (isHttpUrl(resolved)) return { kind: "url", manifestUrl: resolved };
-      const stats = await stat(resolved).catch(() => null);
-      if (stats?.isDirectory()) return { kind: "directory", sourcePath: resolved };
+      if (isHttpUrl(resolved)) return resolved;
     }
 
-    return null;
+    return GITHUB_UPDATE_MANIFEST_URL;
   }
 }

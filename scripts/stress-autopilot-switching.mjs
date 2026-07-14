@@ -233,7 +233,7 @@ test("does not reopen same stream and same giveaway repeatedly", async () => {
   await runNavigation(scanner);
   assert(openUrls(calls).length === deviceCount, "expected no duplicate reopen");
 });
-test("routes only new or off-target devices for the current stream", async () => {
+test("routes all devices on a fresh current stream match even if runtime state claims they are already there", async () => {
   const { scanner, calls } = createHarness();
   const card = streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-a");
   const targetUrl = card.resolvedUrl;
@@ -258,10 +258,9 @@ test("routes only new or off-target devices for the current stream", async () =>
   };
   await runNavigation(scanner);
   const routed = calls.filter((call) => call.type === "openUrl");
-  assert(routed.length === 1, `expected only one device route, got ${routed.length}`);
-  assert(routed[0].deviceId === devices[deviceCount - 1].id, "expected only the untracked/new device to route");
-  assert(routed[0].url.endsWith("/uuid-a"), "expected current target URL");
-  assert(scanner.state.autoClicker.lastAction.includes("skipped 19 already there"), `expected skipped count in action, got ${scanner.state.autoClicker.lastAction}`);
+  assert(routed.length === deviceCount, `expected every device to route on fresh match, got ${routed.length}`);
+  assert(routed.every((call) => call.url.endsWith("/uuid-a")), "expected current target URL for every device");
+  assert(scanner.state.autoClicker.lastAction.includes(`Sent ${deviceCount}/${deviceCount}`), `expected full route count in action, got ${scanner.state.autoClicker.lastAction}`);
 });
 
 test("updates same stream match without reopening the same URL", async () => {

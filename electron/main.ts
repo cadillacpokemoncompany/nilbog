@@ -43,8 +43,6 @@ let shutdownStarted = false;
 const whatnotPackage = "com.whatnot_mobile";
 const winnerNotificationSeen = new Map<string, number>();
 const winnerNotificationTtlMs = 30 * 60_000;
-const routeBatchSize = 5;
-const routeBatchDelayMs = 180;
 
 const debugLog = async (message: string, error?: unknown) => {
   const details = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : (error ? String(error) : "");
@@ -278,46 +276,49 @@ const tapConnectedDevices = async (
   context: string,
   preferredUrl: string | null = null
 ): Promise<Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }>> => {
-  const results: Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }> = [];
-  const batchSize = 4;
+  await Promise.allSettled(
+    devices.map((device) =>
+      adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch((error) =>
+        debugLog(`${context} fullscreen prepare failed device=${device.id}: ${error instanceof Error ? error.message : String(error)}`)
+      )
+    )
+  );
 
-  for (let index = 0; index < devices.length; index += batchSize) {
-    const batch = devices.slice(index, index + batchSize);
-    const batchResults = await Promise.all(
-      batch.map(async (device) => {
+  const tapAll = async (retry: boolean) =>
+    Promise.all(
+      devices.map(async (device) => {
         try {
-          await adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch((error) =>
-            debugLog(`${context} fullscreen prepare failed device=${device.id}: ${error instanceof Error ? error.message : String(error)}`)
-          );
           await adb.tap(device.id, targetX, targetY);
-          await debugLog(`${context} coord tapped device=${device.id} x=${targetX} y=${targetY}`);
+          await debugLog(`${context} coord tapped device=${device.id} x=${targetX} y=${targetY}${retry ? " retry=1" : ""}`);
           return { deviceId: device.id, ok: true as const };
-        } catch (firstError) {
-          await new Promise((resolve) => setTimeout(resolve, 120));
-          try {
-            await adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch(() => undefined);
-            await adb.tap(device.id, targetX, targetY);
-            await debugLog(`${context} coord tapped device=${device.id} x=${targetX} y=${targetY} retry=1`);
-            return { deviceId: device.id, ok: true as const };
-          } catch (secondError) {
-            const message = secondError instanceof Error ? secondError.message : String(secondError);
-            await debugLog(
-              `${context} coord tap failed device=${device.id} x=${targetX} y=${targetY}: ${
-                firstError instanceof Error ? firstError.message : String(firstError)
-              } / ${message}`
-            );
-            return { deviceId: device.id, ok: false as const, message };
-          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await debugLog(`${context} coord tap failed device=${device.id} x=${targetX} y=${targetY}${retry ? " retry=1" : ""}: ${message}`);
+          return { deviceId: device.id, ok: false as const, message };
         }
       })
     );
-    results.push(...batchResults);
-    if (index + batchSize < devices.length) {
-      await new Promise((resolve) => setTimeout(resolve, 80));
-    }
-  }
 
-  return results;
+  const firstResults = await tapAll(false);
+  const failedDevices = devices.filter((device) => firstResults.some((result) => !result.ok && result.deviceId === device.id));
+  if (!failedDevices.length) return firstResults;
+
+  await Promise.allSettled(failedDevices.map((device) => adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch(() => undefined)));
+  const retryResults = await Promise.all(
+    failedDevices.map(async (device) => {
+      try {
+        await adb.tap(device.id, targetX, targetY);
+        await debugLog(`${context} coord tapped device=${device.id} x=${targetX} y=${targetY} retry=1`);
+        return { deviceId: device.id, ok: true as const };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await debugLog(`${context} coord tap failed device=${device.id} x=${targetX} y=${targetY} retry=1: ${message}`);
+        return { deviceId: device.id, ok: false as const, message };
+      }
+    })
+  );
+  const retryByDevice = new Map(retryResults.map((result) => [result.deviceId, result]));
+  return firstResults.map((result) => (result.ok ? result : retryByDevice.get(result.deviceId) ?? result));
 };
 
 const routeConnectedDevices = async (
@@ -325,28 +326,19 @@ const routeConnectedDevices = async (
   url: string,
   context: string
 ): Promise<Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }>> => {
-  const results: Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }> = [];
-  for (let index = 0; index < devices.length; index += routeBatchSize) {
-    const batch = devices.slice(index, index + routeBatchSize);
-    const batchResults = await Promise.all(
-      batch.map(async (device) => {
-        try {
-          await adb.openUrl(device.id, url);
-          await debugLog(`${context} routed device=${device.id} url=${url}`);
-          return { deviceId: device.id, ok: true as const };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          await debugLog(`${context} route failed device=${device.id} url=${url}: ${message}`);
-          return { deviceId: device.id, ok: false as const, message };
-        }
-      })
-    );
-    results.push(...batchResults);
-    if (index + routeBatchSize < devices.length) {
-      await new Promise((resolve) => setTimeout(resolve, routeBatchDelayMs));
-    }
-  }
-  return results;
+  return Promise.all(
+    devices.map(async (device) => {
+      try {
+        await adb.openUrl(device.id, url);
+        await debugLog(`${context} routed device=${device.id} url=${url}`);
+        return { deviceId: device.id, ok: true as const };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await debugLog(`${context} route failed device=${device.id} url=${url}: ${message}`);
+        return { deviceId: device.id, ok: false as const, message };
+      }
+    })
+  );
 };
 
 const shutdownRuntime = async (reason: string): Promise<void> => {
