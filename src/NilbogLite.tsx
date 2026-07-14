@@ -15,6 +15,8 @@ const emptySnapshot: AppSnapshot = {
     jitterMs: 0,
     targetX: 0,
     targetY: 0,
+    activeDeviceProfile: "2025",
+    profiles: { "2024": { targetX: 580, targetY: 305, intervalMs: 3000 }, "2025": { targetX: 580, targetY: 280, intervalMs: 3000 } },
     activeSlot: null,
     parkCooldownMs: 120000,
     maxMatchAgeMs: 120000,

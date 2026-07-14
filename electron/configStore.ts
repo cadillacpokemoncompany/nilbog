@@ -70,6 +70,11 @@ const defaultSnapshot = (profilePath: string): AppSnapshot => ({
     jitterMs: 0,
     targetX: 580,
     targetY: 280,
+    activeDeviceProfile: "2025",
+    profiles: {
+      "2024": { targetX: 580, targetY: 305, intervalMs: 3000 },
+      "2025": { targetX: 580, targetY: 280, intervalMs: 3000 }
+    },
     activeSlot: null,
     parkCooldownMs: 120_000,
     maxMatchAgeMs: 120_000,
@@ -147,10 +152,9 @@ const normalizeKeywordRules = (rules: KeywordScoreRule[] | undefined): KeywordSc
 
 const normalizeAutoClicker = (saved: Partial<AppSnapshot>["autoClicker"], profilePath: string): AppSnapshot["autoClicker"] => {
   const defaults = defaultSnapshot(profilePath).autoClicker;
-  const legacyProfiles = (saved as Partial<AppSnapshot["autoClicker"]> & {
-    profiles?: Record<string, Partial<Pick<AppSnapshot["autoClicker"], "targetX" | "targetY" | "intervalMs" | "jitterMs">>>;
-  })?.profiles;
+  const legacyProfiles = saved?.profiles;
   const legacy2025 = legacyProfiles?.["2025"];
+  const activeDeviceProfile: "2024" | "2025" = saved?.activeDeviceProfile === "2024" ? "2024" : "2025";
   const targetX = Number.isFinite(saved?.targetX) && saved!.targetX > 0
     ? Number(saved!.targetX)
     : Number.isFinite(legacy2025?.targetX) && Number(legacy2025?.targetX) > 0
@@ -176,6 +180,19 @@ const normalizeAutoClicker = (saved: Partial<AppSnapshot>["autoClicker"], profil
     targetY,
     intervalMs,
     jitterMs: 0,
+    activeDeviceProfile,
+    profiles: {
+      "2024": {
+        targetX: Number(legacyProfiles?.["2024"]?.targetX) || 580,
+        targetY: Number(legacyProfiles?.["2024"]?.targetY) || 305,
+        intervalMs: Number(legacyProfiles?.["2024"]?.intervalMs) || 3000
+      },
+      "2025": {
+        targetX: Number(legacy2025?.targetX) || targetX,
+        targetY: Number(legacy2025?.targetY) || targetY,
+        intervalMs: Number(legacy2025?.intervalMs) || intervalMs
+      }
+    },
     parkCooldownMs: Number.isFinite(saved?.parkCooldownMs) ? Number(saved?.parkCooldownMs) : defaults.parkCooldownMs,
     maxMatchAgeMs: Number.isFinite(saved?.maxMatchAgeMs) ? Number(saved?.maxMatchAgeMs) : defaults.maxMatchAgeMs,
     lastParkedAt: saved?.lastParkedAt ?? null,
@@ -205,9 +222,9 @@ const normalizeAutoClicker = (saved: Partial<AppSnapshot>["autoClicker"], profil
 
   return {
     ...merged,
-    targetX,
-    targetY,
-    intervalMs,
+    targetX: merged.profiles[activeDeviceProfile].targetX,
+    targetY: merged.profiles[activeDeviceProfile].targetY,
+    intervalMs: merged.profiles[activeDeviceProfile].intervalMs,
     jitterMs: 0
   };
 };
@@ -357,10 +374,12 @@ export class ConfigStore {
   }
 
   private applyLockedStreamers(cards: StreamCard[], lockedStreamers: Map<number, Partial<StreamCard>>): StreamCard[] {
-    const fixedStreamers = ["KrakenHits", "NovaTCG", "RosesCloset", "SpaceNarwhalz", "VendturesVault", "WestCoastCards", "Woosleys"];
-    return cards.map((card) => {
+    const fixedStreamers = ["KrakenDrips", "KrakenHits", "NovaTCG", "RosesCloset", "SpaceNarwhalz", "TraderBea", "VendturesVault", "Woosleys"];
+    const normalize = (value: string) => value.trim().replace(/^@/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const byStreamer = new Map(cards.map((card) => [normalize(card.streamer), card]));
+    return fixedStreamers.map((streamer, slot) => {
+      const card = byStreamer.get(normalize(streamer)) ?? cards[slot] ?? createEmptyCards()[slot];
       const locked = lockedStreamers.get(card.slot);
-      const streamer = fixedStreamers[card.slot] ?? card.streamer;
       const streamerChanged = card.streamer.trim().toLowerCase() !== streamer.trim().toLowerCase();
       const baseCard = streamerChanged
         ? {
@@ -380,9 +399,10 @@ export class ConfigStore {
           }
         : card;
       return locked === undefined
-        ? { ...baseCard, streamer }
+        ? { ...baseCard, slot, streamer }
         : {
             ...baseCard,
+            slot,
             streamer,
             clickTargetX: locked.clickTargetX ?? baseCard.clickTargetX,
             clickTargetY: locked.clickTargetY ?? baseCard.clickTargetY,

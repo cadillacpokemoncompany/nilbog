@@ -127,6 +127,8 @@ export interface AutoClickerSettings {
   jitterMs: number;
   targetX: number;
   targetY: number;
+  activeDeviceProfile: "2024" | "2025";
+  profiles: Record<"2024" | "2025", { targetX: number; targetY: number; intervalMs: number }>;
   activeSlot: number | null;
   parkCooldownMs: number;
   maxMatchAgeMs: number;
@@ -188,7 +190,7 @@ export interface AppSnapshot {
 }
 
 export const createEmptyCards = (): StreamCard[] =>
-  ["KrakenHits", "NovaTCG", "RosesCloset", "SpaceNarwhalz", "VendturesVault", "WestCoastCards", "Woosleys"].map((streamer, index) => ({
+  ["KrakenDrips", "KrakenHits", "NovaTCG", "RosesCloset", "SpaceNarwhalz", "TraderBea", "VendturesVault", "Woosleys"].map((streamer, index) => ({
     slot: index,
     streamer,
     clickTargetX: 0,

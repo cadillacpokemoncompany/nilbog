@@ -4,7 +4,7 @@ import { createDefaultKeywordRules, type AppSnapshot, type StreamCard } from "..
 import { nilbogApi } from "./nilbogApi";
 import "./styles/app.css";
 
-const focusStreamers = ["KrakenHits", "NovaTCG", "RosesCloset", "SpaceNarwhalz", "VendturesVault", "WestCoastCards", "Woosleys"];
+const focusStreamers = ["KrakenDrips", "KrakenHits", "NovaTCG", "RosesCloset", "SpaceNarwhalz", "TraderBea", "VendturesVault", "Woosleys"];
 const normalizeFocusStreamer = (value: string) => value.trim().replace(/^@/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const emptySnapshot: AppSnapshot = {
@@ -18,6 +18,8 @@ const emptySnapshot: AppSnapshot = {
     jitterMs: 0,
     targetX: 0,
     targetY: 0,
+    activeDeviceProfile: "2025",
+    profiles: { "2024": { targetX: 580, targetY: 305, intervalMs: 3000 }, "2025": { targetX: 580, targetY: 280, intervalMs: 3000 } },
     activeSlot: null,
     parkCooldownMs: 120000,
     maxMatchAgeMs: 120000,
@@ -117,18 +119,20 @@ const ensureFocusCards = (cards: StreamCard[]): StreamCard[] => {
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot);
-  const [clickerDraft, setClickerDraft] = useState({ x: "580", y: "280", sec: "3" });
+  const [clickerDrafts, setClickerDrafts] = useState({
+    "2024": { x: "580", y: "305", sec: "3" },
+    "2025": { x: "580", y: "280", sec: "3" }
+  });
   useEffect(() => {
     void nilbogApi.getSnapshot().then(setSnapshot);
     return nilbogApi.onSnapshot(setSnapshot);
   }, []);
   useEffect(() => {
-    setClickerDraft({
-      x: String(snapshot.autoClicker.targetX || 580),
-      y: String(snapshot.autoClicker.targetY || 280),
-      sec: String(Number(((snapshot.autoClicker.intervalMs || 3000) / 1000).toFixed(1)))
+    setClickerDrafts({
+      "2024": { x: String(snapshot.autoClicker.profiles["2024"].targetX), y: String(snapshot.autoClicker.profiles["2024"].targetY), sec: String(snapshot.autoClicker.profiles["2024"].intervalMs / 1000) },
+      "2025": { x: String(snapshot.autoClicker.profiles["2025"].targetX), y: String(snapshot.autoClicker.profiles["2025"].targetY), sec: String(snapshot.autoClicker.profiles["2025"].intervalMs / 1000) }
     });
-  }, [snapshot.autoClicker.targetX, snapshot.autoClicker.targetY, snapshot.autoClicker.intervalMs]);
+  }, [snapshot.autoClicker.profiles]);
   useEffect(() => {
     return nilbogApi.onStreamPreviewFrame((frame) => {
       setSnapshot((current) => ({
@@ -224,10 +228,11 @@ export default function App() {
       ),
     [displayCards]
   );
-  const draftToSettings = () => {
-    const targetX = Number(clickerDraft.x);
-    const targetY = Number(clickerDraft.y);
-    const seconds = Number(clickerDraft.sec);
+  const profileDraftToSettings = (profile: "2024" | "2025") => {
+    const draft = clickerDrafts[profile];
+    const targetX = Number(draft.x);
+    const targetY = Number(draft.y);
+    const seconds = Number(draft.sec);
     const intervalMs = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds * 1000)) : 0;
     return {
       targetX: Number.isFinite(targetX) ? targetX : 0,
@@ -236,76 +241,31 @@ export default function App() {
       jitterMs: 0
     };
   };
-  const saveClickerSettings = () => {
-    updateAutoClicker(draftToSettings());
+  const saveClickerSettings = (profile: "2024" | "2025") => {
+    const settings = profileDraftToSettings(profile);
+    updateAutoClicker({ profiles: { ...snapshot.autoClicker.profiles, [profile]: settings }, ...(snapshot.autoClicker.activeDeviceProfile === profile ? settings : {}) });
   };
-  const updateClickerDraft = (key: "x" | "y" | "sec", value: string) => {
-    setClickerDraft((current) => ({
+  const updateClickerDraft = (profile: "2024" | "2025", key: "x" | "y" | "sec", value: string) => {
+    setClickerDrafts((current) => ({
       ...current,
-      [key]: value
+      [profile]: { ...current[profile], [key]: value }
     }));
   };
+  const selectClickerProfile = (profile: "2024" | "2025") => {
+    const settings = profileDraftToSettings(profile);
+    updateAutoClicker({ activeDeviceProfile: profile, profiles: { ...snapshot.autoClicker.profiles, [profile]: settings }, ...settings });
+  };
+  const activeCard = snapshot.autoClicker.activeSlot === null ? null : displayCards.find((card) => card.slot === snapshot.autoClicker.activeSlot) ?? null;
+  const latestTask = snapshot.autoClicker.activityLog.currentTask[0];
 
   return (
     <main className="app-shell">
       <section className="deck">
-        <aside className="status-tile">
-          <div className="brand-row">
-            <div>
-              <h1>App Status</h1>
-            </div>
-            <span className="connected-count">{snapshot.autoClicker.adbHealth.connected} connected</span>
-          </div>
-
-          <div className="status-card-grid">
-            <section className="status-mini-card">
-              <span>Scans</span>
-              <strong>{snapshot.autoClicker.runtimeDetail || "Waiting for scanner"}</strong>
-              <em>
-                Last {snapshot.scanner.lastTickAt ? formatLogTime(snapshot.scanner.lastTickAt) : "Waiting"} | Next{" "}
-                {snapshot.autoClicker.nextScanAt
-                  ? formatLogTime(snapshot.autoClicker.nextScanAt)
-                  : "Soon"}
-              </em>
-              <em>
-                Update {snapshot.autoClicker.updateHealth.status}
-                {snapshot.autoClicker.updateHealth.latestVersion ? ` ${snapshot.autoClicker.updateHealth.latestVersion}` : ""}
-              </em>
-            </section>
-
-            <section className="status-mini-card">
-              <span>Entered Stream</span>
-              {renderLatestLogEntry(snapshot.autoClicker.activityLog.enteredStream, "No stream route yet")}
-            </section>
-
-            <section className="status-mini-card">
-              <span>Entered Giveaway</span>
-              {renderLatestLogEntry(snapshot.autoClicker.activityLog.enteredGiveaway, "No tap yet")}
-            </section>
-
-            <section className="status-mini-card">
-              <span>Devices</span>
-              <strong>
-                {snapshot.autoClicker.adbHealth.connected} connected | {snapshot.autoClicker.adbHealth.selectedConnected} selected
-              </strong>
-              <em>
-                {snapshot.autoClicker.adbHealth.unauthorized} unauthorized | {snapshot.autoClicker.adbHealth.offline} offline
-              </em>
-              <em>
-                {deviceRuntimeSummary.active} active | {deviceRuntimeSummary.ready} ready | {deviceRuntimeSummary.failed} failed
-              </em>
-            </section>
-          </div>
-        </aside>
-
         <aside className="control-tile">
           <div className={`update-panel ${updateReady ? "is-ready" : ""} ${updateHealth.status === "error" ? "is-error" : ""}`}>
             <div className="update-copy">
               <span>Updates</span>
               <strong>{updateLabel}</strong>
-              <em>
-                {updateHealth.lastCheckedAt ? `Checked ${formatLogTime(updateHealth.lastCheckedAt)}` : "Waiting"}
-              </em>
             </div>
             <button
               className="update-button"
@@ -318,26 +278,14 @@ export default function App() {
           </div>
 
           <div className="clicker-profile-stack">
-            <div className="clicker-profile-column is-single">
-              <input
-                inputMode="numeric"
-                value={clickerDraft.x}
-                onBlur={saveClickerSettings}
-                onChange={(event) => updateClickerDraft("x", event.target.value)}
-              />
-              <input
-                inputMode="numeric"
-                value={clickerDraft.y}
-                onBlur={saveClickerSettings}
-                onChange={(event) => updateClickerDraft("y", event.target.value)}
-              />
-              <input
-                inputMode="decimal"
-                value={clickerDraft.sec}
-                onBlur={saveClickerSettings}
-                onChange={(event) => updateClickerDraft("sec", event.target.value)}
-              />
-            </div>
+            {(["2024", "2025"] as const).map((profile) => (
+              <div className="clicker-profile-column" key={profile}>
+                <button className={`profile-toggle ${snapshot.autoClicker.activeDeviceProfile === profile ? "is-active" : ""}`} onClick={() => selectClickerProfile(profile)}>{profile}</button>
+                <input inputMode="numeric" value={clickerDrafts[profile].x} onBlur={() => saveClickerSettings(profile)} onChange={(event) => updateClickerDraft(profile, "x", event.target.value)} />
+                <input inputMode="numeric" value={clickerDrafts[profile].y} onBlur={() => saveClickerSettings(profile)} onChange={(event) => updateClickerDraft(profile, "y", event.target.value)} />
+                <input inputMode="decimal" value={clickerDrafts[profile].sec} onBlur={() => saveClickerSettings(profile)} onChange={(event) => updateClickerDraft(profile, "sec", event.target.value)} />
+              </div>
+            ))}
           </div>
 
           <h1 className="clicker-control-title">Clicker Control</h1>
@@ -345,7 +293,7 @@ export default function App() {
             <button
               className="auto-button start-button"
               disabled={clickerRunning || !hasClickerSettings}
-              onClick={() => updateAutoClicker({ ...draftToSettings(), enabled: true, autoNavEnabled: true })}
+              onClick={() => updateAutoClicker({ ...profileDraftToSettings(snapshot.autoClicker.activeDeviceProfile), enabled: true, autoNavEnabled: true })}
               title="Start autoplay"
             >
               <Play size={14} />
@@ -360,6 +308,16 @@ export default function App() {
             </button>
           </div>
         </aside>
+
+        <article className={`status-tile app-status-card ${clickerRunning ? "is-running" : "is-stopped"}`}>
+          <header className="app-status-head"><span>APP STATUS</span><strong>{snapshot.autoClicker.runtimeState.replaceAll("_", " ")}</strong></header>
+          <div className="app-status-grid">
+            <div><span>CURRENT TASK</span><strong title={latestTask?.text ?? snapshot.autoClicker.lastAction ?? "Waiting"}>{latestTask?.text ?? snapshot.autoClicker.lastAction ?? "WAITING"}</strong></div>
+            <div><span>TARGET</span><strong title={activeCard?.giveawayName ?? "No active target"}>{activeCard ? `${activeCard.streamer}: ${activeCard.giveawayName ?? "MONITORING"}` : "NO ACTIVE TARGET"}</strong></div>
+            <div><span>DEVICES</span><strong>{`${snapshot.autoClicker.adbHealth.connected} CONNECTED`}</strong></div>
+            <div><span>LATEST SCAN</span><strong>{snapshot.scanner.lastTickAt ? formatLogTime(snapshot.scanner.lastTickAt) : "WAITING"}</strong></div>
+          </div>
+        </article>
 
         {displayCards.map((card) => {
           const cardBackground = card.thumbnailImageDataUrl;
