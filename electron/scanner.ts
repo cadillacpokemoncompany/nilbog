@@ -559,7 +559,7 @@ export class Scanner {
   private async navigateAutoTarget(devices: AdbDevice[]): Promise<void> {
     const decision = this.pickScoredAutopilotTarget();
 
-    if (!this.snapshot.autoClicker.enabled || !this.snapshot.autoClicker.autoNavEnabled) {
+    if (!this.snapshot.autoClicker.enabled) {
       this.lastAutoNavKey = null;
       this.updateRuntime("OFF", decision.ruleHits.length ? "Match found, autoplay off" : "Autopilot is off", decision);
       return;

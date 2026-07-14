@@ -189,7 +189,7 @@ const stopScannerWatchdogLoop = () => {
   scannerWatchdogTimer = null;
 };
 
-const clickerIsStopped = (): boolean => !scanner?.state.autoClicker.enabled && !scanner?.state.autoClicker.autoNavEnabled;
+const clickerIsStopped = (): boolean => !scanner?.state.autoClicker.enabled;
 
 const hasClickerSettings = () =>
   scanner.state.autoClicker.targetX > 0 && scanner.state.autoClicker.targetY > 0 && scanner.state.autoClicker.intervalMs > 0;
@@ -449,7 +449,7 @@ const startDeviceWatcherLoop = () => {
 
   const watcherTick = async () => {
     if (deviceWatcherRunning || shutdownStarted) return;
-    if (!scanner.state.autoClicker.enabled || !scanner.state.autoClicker.autoNavEnabled) return;
+    if (!scanner.state.autoClicker.enabled) return;
     if (scanner.state.autoClicker.dryRun) return;
     deviceWatcherRunning = true;
 
@@ -495,7 +495,7 @@ const startWinnerWatcherLoop = () => {
 
   const watcherTick = async () => {
     if (winnerWatcherRunning || shutdownStarted) return;
-    if (!scanner.state.autoClicker.enabled || !scanner.state.autoClicker.autoNavEnabled) return;
+    if (!scanner.state.autoClicker.enabled) return;
     if (scanner.state.autoClicker.dryRun) return;
     winnerWatcherRunning = true;
 
@@ -743,6 +743,9 @@ app.whenReady().then(async () => {
     if (patch?.enabled === true) {
       nextAutoClicker.autoNavEnabled = true;
     }
+    if (patch?.enabled === false) {
+      nextAutoClicker.autoNavEnabled = false;
+    }
     await scanner.setState({
       ...scanner.state,
       autoClicker: nextAutoClicker
@@ -835,7 +838,7 @@ app.whenReady().then(async () => {
   startDeviceWatcherLoop();
   startWinnerWatcherLoop();
   autoUpdater.start();
-  if (scanner.state.autoClicker.enabled && scanner.state.autoClicker.autoNavEnabled) {
+  if (scanner.state.autoClicker.enabled) {
     if (hasClickerSettings()) {
       await debugLog(`autoclicker resumed from saved state activeSlot=${scanner.state.autoClicker.activeSlot ?? "auto"}`);
       startAutoClickerLoop();
