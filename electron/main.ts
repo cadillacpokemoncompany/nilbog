@@ -274,16 +274,8 @@ const tapConnectedDevices = async (
   targetX: number,
   targetY: number,
   context: string,
-  preferredUrl: string | null = null
+  _preferredUrl: string | null = null
 ): Promise<Array<{ deviceId: string; ok: true } | { deviceId: string; ok: false; message: string }>> => {
-  await Promise.allSettled(
-    devices.map((device) =>
-      adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch((error) =>
-        debugLog(`${context} fullscreen prepare failed device=${device.id}: ${error instanceof Error ? error.message : String(error)}`)
-      )
-    )
-  );
-
   const tapAll = async (retry: boolean) =>
     Promise.all(
       devices.map(async (device) => {
@@ -303,7 +295,6 @@ const tapConnectedDevices = async (
   const failedDevices = devices.filter((device) => firstResults.some((result) => !result.ok && result.deviceId === device.id));
   if (!failedDevices.length) return firstResults;
 
-  await Promise.allSettled(failedDevices.map((device) => adb.ensureWhatnotForeground(device.id, preferredUrl, true).catch(() => undefined)));
   const retryResults = await Promise.all(
     failedDevices.map(async (device) => {
       try {
@@ -354,13 +345,6 @@ const shutdownRuntime = async (reason: string): Promise<void> => {
 
   if (scanner) {
     scanner.stop();
-    await scanner.setState({
-      ...scanner.state,
-      autoClicker: {
-        ...scanner.state.autoClicker,
-        enabled: false
-      }
-    }).catch((error) => debugLog("runtime shutdown state save failed", error));
   }
 
   await browserService?.close().catch((error) => debugLog("runtime shutdown browser close failed", error));
@@ -392,6 +376,9 @@ const startAutoClickerLoop = () => {
       return;
     }
 
+    // Keep the configured cadence independent of ADB command duration.
+    autoClickerTimer = setTimeout(runClick, nextClickDelayMs());
+
     const targetSlot = scanner.state.autoClicker.activeSlot;
     const card =
       targetSlot === null
@@ -399,12 +386,10 @@ const startAutoClickerLoop = () => {
         : scanner.state.cards.find((candidate) => candidate.slot === targetSlot && candidate.status === "live" && candidate.resolvedUrl);
     if (!card) {
       await debugLog("autoclicker tick skipped: no scored active stream target");
-      autoClickerTimer = setTimeout(runClick, nextClickDelayMs());
       return;
     }
     if (!scanner.state.autoClicker.intervalMs || scanner.state.autoClicker.targetX <= 0 || scanner.state.autoClicker.targetY <= 0) {
       await debugLog("autoclicker tick skipped: clicker settings are not saved");
-      autoClickerTimer = setTimeout(runClick, nextClickDelayMs());
       return;
     }
     const freshDevices = await adb.listDevices(scanner.state.devices);
@@ -442,8 +427,6 @@ const startAutoClickerLoop = () => {
         `Tapped ${okCount}/${devices.length}`
       );
     }
-
-    autoClickerTimer = setTimeout(runClick, nextClickDelayMs());
   };
 
   autoClickerTimer = setTimeout(runClick, nextClickDelayMs());
@@ -666,19 +649,7 @@ app.whenReady().then(async () => {
       });
     },
     onBeforeInstall: async (installerPath, manifest) => {
-      await scanner.setState({
-        ...scanner.state,
-        autoClicker: {
-          ...scanner.state.autoClicker,
-          enabled: false,
-          autoNavEnabled: false,
-          runtimeState: "OFF",
-          runtimeDetail: `Installing update ${manifest.version}`,
-          activityLog: appendActivityLog(scanner.state.autoClicker.activityLog, "currentTask", `UPDATE: installing ${manifest.version}`),
-          lastAction: `Installing update ${manifest.version}`,
-          lastActionAt: new Date().toISOString()
-        }
-      });
+      await debugLog(`installing update ${manifest.version}; preserving saved autoplay state`);
       await shutdownRuntime(`auto-update ${manifest.version} ${installerPath}`);
     },
     quit: () => app.quit()
@@ -804,19 +775,6 @@ app.whenReady().then(async () => {
   ipcMain.handle("update:install-latest", async () => {
     stopAutoClickerLoop();
     await debugLog("manual update requested");
-    await scanner.setState({
-      ...scanner.state,
-      autoClicker: {
-        ...scanner.state.autoClicker,
-        enabled: false,
-        autoNavEnabled: false,
-        runtimeState: "OFF",
-        runtimeDetail: "Stopping controls for update",
-        activityLog: appendActivityLog(scanner.state.autoClicker.activityLog, "currentTask", "UPDATE: manual latest update requested"),
-        lastAction: "Manual update requested",
-        lastActionAt: new Date().toISOString()
-      }
-    });
     void autoUpdater.installLatestVisible();
     return scanner.state;
   });
@@ -877,6 +835,14 @@ app.whenReady().then(async () => {
   startDeviceWatcherLoop();
   startWinnerWatcherLoop();
   autoUpdater.start();
+  if (scanner.state.autoClicker.enabled && scanner.state.autoClicker.autoNavEnabled) {
+    if (hasClickerSettings()) {
+      await debugLog(`autoclicker resumed from saved state activeSlot=${scanner.state.autoClicker.activeSlot ?? "auto"}`);
+      startAutoClickerLoop();
+    } else {
+      await debugLog("saved autoplay could not resume: clicker settings are not saved");
+    }
+  }
   if (process.env.NILBOG_AUTOPILOT_ONCE === "1") {
     const nextAutoClicker = {
       ...scanner.state.autoClicker,

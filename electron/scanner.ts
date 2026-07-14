@@ -15,7 +15,9 @@ const DEVICE_SCAN_MS = 2_500;
 const FEED_CYCLE_MS = 30_000;
 const FEED_SETTLE_MS = 5_000;
 const FEED_HARD_REFRESH_MS = 150_000;
-const OFFLINE_GRACE = 6;
+// A transient empty/partial followed-feed scrape must not eject a valid live target.
+// At the 2.5s scanner cadence this provides roughly one minute for the feed to recover.
+const OFFLINE_GRACE = 24;
 const KRAKEN_SLOT = 0;
 const NOVA_SLOT = 1;
 const routeVerifyDelayMsFromEnv = Number(process.env.NILBOG_ROUTE_VERIFY_DELAY_MS);

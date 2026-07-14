@@ -169,8 +169,8 @@ const normalizeAutoClicker = (saved: Partial<AppSnapshot>["autoClicker"], profil
   const merged = {
     ...defaults,
     ...saved,
-    enabled: false,
-    autoNavEnabled: false,
+    enabled: Boolean(saved?.enabled),
+    autoNavEnabled: Boolean(saved?.enabled && saved?.autoNavEnabled),
     dryRun: Boolean(saved?.dryRun),
     targetX,
     targetY,

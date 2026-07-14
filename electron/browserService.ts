@@ -966,17 +966,6 @@ export class BrowserService {
     if (!this.context) return;
     const context = this.context;
 
-    const liveIds = new Set(streams.map((stream) => stream.streamId));
-    await Promise.all(
-      [...this.streamPages.entries()].map(async ([streamId, page]) => {
-        if (liveIds.has(streamId)) return;
-        this.clearStreamRuntime(streamId, true);
-        this.onStreamPreviewFrame?.(streamId, null);
-        await page.close().catch(() => undefined);
-        this.streamPages.delete(streamId);
-      })
-    );
-
     await Promise.all(streams.map(async (stream) => {
       try {
         const existingPage = this.streamPages.get(stream.streamId);
@@ -1802,7 +1791,8 @@ export class BrowserService {
       const selfHealAgeMs = health?.lastSelfHealAt ? now - health.lastSelfHealAt : Number.POSITIVE_INFINITY;
       const missingCurrentName = !state?.giveawayName || !state.active;
       const shouldForceRefresh = missingCurrentName || nameAgeMs > 45_000;
-      const shouldReopen = signalAgeMs > 90_000 && selfHealAgeMs > 60_000;
+      const missingNameTooLong = missingCurrentName && attachedAgeMs > 20_000;
+      const shouldReopen = (signalAgeMs > 60_000 || missingNameTooLong) && selfHealAgeMs > 30_000;
 
       if (shouldForceRefresh) {
         await this.refreshApolloGiveawayState(stream.streamId, page, state?.giveawayId).catch(() => undefined);

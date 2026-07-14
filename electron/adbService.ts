@@ -114,7 +114,8 @@ export class AdbService {
     const tapX = String(Math.round(x));
     const tapY = String(Math.round(y));
     return execFileAsync(adbExecutable(), ["-s", deviceId, "shell", "input", "tap", tapX, tapY], {
-      windowsHide: true
+      windowsHide: true,
+      timeout: 2_500
     });
   }
 
