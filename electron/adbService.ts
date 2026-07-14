@@ -10,6 +10,7 @@ const baseDisplayWidth = 720;
 const baseDisplayHeight = 1604;
 const forcedBrightness = "25";
 const displayPrepareThrottleMs = 30_000;
+const fullscreenPrepareThrottleMs = 60_000;
 const lowPowerThrottleMs = 5 * 60_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -86,6 +87,7 @@ export const hasWinnerPopupText = (text: string): boolean => {
 
 export class AdbService {
   private readonly lastDisplayPrepareAt = new Map<string, number>();
+  private readonly lastFullscreenPrepareAt = new Map<string, number>();
   private readonly lastLowPowerAt = new Map<string, number>();
   private readonly giveawayBlockedUntil = new Map<string, number>();
 
@@ -601,7 +603,10 @@ export class AdbService {
     return null;
   }
 
-  async prepareFullscreenWhatnot(deviceId: string): Promise<void> {
+  async prepareFullscreenWhatnot(deviceId: string, force = false): Promise<void> {
+    const now = Date.now();
+    const lastPreparedAt = this.lastFullscreenPrepareAt.get(deviceId) ?? 0;
+    if (!force && now - lastPreparedAt < fullscreenPrepareThrottleMs) return;
     await this.prepareControlDisplay(deviceId);
     await this.shell(deviceId, ["input", "keyevent", "KEYCODE_WAKEUP"]).catch(() => undefined);
     await this.shell(deviceId, ["wm", "dismiss-keyguard"]).catch(() => undefined);
@@ -609,6 +614,7 @@ export class AdbService {
     await this.shell(deviceId, ["appops", "set", whatnotPackage, "PICTURE_IN_PICTURE", "ignore"]).catch(() => undefined);
     await this.shell(deviceId, ["settings", "put", "global", "policy_control", `immersive.full=${whatnotPackage}`]).catch(() => undefined);
     await this.shell(deviceId, ["cmd", "statusbar", "collapse"]).catch(() => undefined);
+    this.lastFullscreenPrepareAt.set(deviceId, now);
   }
 
   private async enforceLowPowerControls(deviceId: string, force = false): Promise<void> {

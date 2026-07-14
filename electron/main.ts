@@ -35,9 +35,11 @@ let lastEnterNotificationKey: string | null = null;
 let autoClickerTimer: NodeJS.Timeout | null = null;
 let autoClickerWatchdogTimer: NodeJS.Timeout | null = null;
 let deviceWatcherTimer: NodeJS.Timeout | null = null;
+let displayWatcherTimer: NodeJS.Timeout | null = null;
 let winnerWatcherTimer: NodeJS.Timeout | null = null;
 let scannerWatchdogTimer: NodeJS.Timeout | null = null;
 let deviceWatcherRunning = false;
+let displayWatcherRunning = false;
 let winnerWatcherRunning = false;
 let shutdownStarted = false;
 const whatnotPackage = "com.whatnot_mobile";
@@ -181,6 +183,12 @@ const stopWinnerWatcherLoop = () => {
   if (!winnerWatcherTimer) return;
   clearInterval(winnerWatcherTimer);
   winnerWatcherTimer = null;
+};
+
+const stopDisplayWatcherLoop = () => {
+  if (!displayWatcherTimer) return;
+  clearInterval(displayWatcherTimer);
+  displayWatcherTimer = null;
 };
 
 const stopScannerWatchdogLoop = () => {
@@ -338,6 +346,7 @@ const shutdownRuntime = async (reason: string): Promise<void> => {
   stopAutoClickerLoop();
   stopAutoClickerWatchdogLoop();
   stopDeviceWatcherLoop();
+  stopDisplayWatcherLoop();
   stopWinnerWatcherLoop();
   stopScannerWatchdogLoop();
   autoUpdater?.stop();
@@ -568,6 +577,28 @@ const startWinnerWatcherLoop = () => {
   };
 
   winnerWatcherTimer = setInterval(() => void watcherTick(), 2_500);
+};
+
+const startDisplayWatcherLoop = () => {
+  stopDisplayWatcherLoop();
+
+  const watcherTick = async () => {
+    if (displayWatcherRunning || shutdownStarted) return;
+    if (!scanner.state.autoClicker.enabled || scanner.state.autoClicker.dryRun) return;
+    displayWatcherRunning = true;
+    try {
+      const freshDevices = await adb.listDevices(scanner.state.devices);
+      const connectedDevices = freshDevices.filter((device) => device.status === "connected");
+      await Promise.allSettled(connectedDevices.map((device) => adb.prepareFullscreenWhatnot(device.id)));
+    } catch (error) {
+      await debugLog("display watcher tick failed", error);
+    } finally {
+      displayWatcherRunning = false;
+    }
+  };
+
+  displayWatcherTimer = setInterval(() => void watcherTick(), 10_000);
+  void watcherTick();
 };
 
 const startScannerWatchdogLoop = () => {
@@ -842,6 +873,7 @@ app.whenReady().then(async () => {
   startScannerWatchdogLoop();
   startAutoClickerWatchdogLoop();
   startDeviceWatcherLoop();
+  startDisplayWatcherLoop();
   startWinnerWatcherLoop();
   autoUpdater.start();
   if (scanner.state.autoClicker.enabled) {
