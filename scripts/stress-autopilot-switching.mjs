@@ -317,16 +317,16 @@ test("uses newer match as tie breaker for same score", async () => {
   assert(openUrls(calls).every((url) => url.endsWith("/uuid-space")), "expected newer same-score URL");
 });
 
-test("ignores stale matches and falls back to KrakenHits", async () => {
+test("uses displayed live giveaway names regardless of feed timestamp age", async () => {
   const { scanner, calls } = createHarness();
   setCards(scanner, [
     streamCard(0, "KrakenHits", "No scored phrase today", "uuid-kraken-fallback"),
     streamCard(4, "SpaceNarwhalz", "Elite Trainer Box giveaway", "uuid-stale", -180000)
   ]);
   await runNavigation(scanner);
-  assert(scanner.state.autoClicker.runtimeState === "NO_MATCH", "expected stale match to fall back");
-  assert(scanner.state.autoClicker.activeSlot === 0, "expected Kraken fallback active slot");
-  assert(openUrls(calls).every((url) => url.endsWith("/uuid-kraken-fallback")), "expected Kraken fallback URL");
+  assert(scanner.state.autoClicker.runtimeState === "MATCHED", "expected displayed live match to remain actionable");
+  assert(scanner.state.autoClicker.activeSlot === 4, "expected scored live card active slot");
+  assert(openUrls(calls).every((url) => url.endsWith("/uuid-stale")), "expected scored live card URL");
   assert(parkCount(calls) === 0, "expected no home parking");
 });
 
