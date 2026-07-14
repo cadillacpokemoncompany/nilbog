@@ -641,7 +641,6 @@ app.whenReady().then(async () => {
     userDataPath: store.appDataDir,
     currentVersion: app.getVersion(),
     logger: debugLog,
-    canInstall: clickerIsStopped,
     onHealth: async (patch) => {
       await scanner.setState({
         ...scanner.state,
@@ -818,7 +817,7 @@ app.whenReady().then(async () => {
         lastActionAt: new Date().toISOString()
       }
     });
-    void autoUpdater.check();
+    void autoUpdater.installLatestVisible();
     return scanner.state;
   });
   ipcMain.handle("card:send-to-devices", async (_event, slot: number) => {

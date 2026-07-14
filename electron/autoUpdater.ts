@@ -17,7 +17,6 @@ interface AutoUpdaterOptions {
   userDataPath: string;
   currentVersion: string;
   logger: (message: string, error?: unknown) => void | Promise<void>;
-  canInstall: () => boolean;
   onStatus?: (message: string) => void | Promise<void>;
   onHealth?: (patch: Partial<UpdateHealth>) => void | Promise<void>;
   onBeforeInstall: (installerPath: string, manifest: UpdateManifest) => Promise<void>;
@@ -136,7 +135,12 @@ export class AutoUpdaterService {
         lastError: null
       });
       if (this.pendingManifest && this.pendingInstallerPath) {
-        await this.installIfIdle(this.pendingInstallerPath, this.pendingManifest);
+        await this.updateHealth({
+          status: "downloaded",
+          latestVersion: this.pendingManifest.version,
+          lastError: null,
+          pendingInstaller: this.pendingInstallerPath
+        });
         return;
       }
 
@@ -221,7 +225,6 @@ export class AutoUpdaterService {
       await this.options.logger(`auto update downloaded version=${manifest.version} installer=${localInstaller}`);
       this.pendingManifest = manifest as UpdateManifest;
       this.pendingInstallerPath = localInstaller;
-      await this.installIfIdle(localInstaller, manifest as UpdateManifest);
     } catch (error) {
       await this.updateHealth({
         status: "error",
@@ -233,19 +236,20 @@ export class AutoUpdaterService {
     }
   }
 
-  private async installIfIdle(installerPath: string, manifest: UpdateManifest): Promise<void> {
-    if (!this.options.canInstall()) {
-      await this.updateHealth({
-        status: "pending",
-        latestVersion: manifest.version,
-        pendingInstaller: installerPath,
-        lastError: null
-      });
-      await this.options.onStatus?.(`Update ${manifest.version} ready; waiting for clicker to stop`);
-      await this.options.logger(`auto update pending version=${manifest.version}; clicker is running`);
+  async installLatestVisible(): Promise<void> {
+    if (!this.pendingManifest || !this.pendingInstallerPath) {
+      await this.check();
+    }
+
+    if (!this.pendingManifest || !this.pendingInstallerPath) {
+      await this.options.logger("manual update install skipped: no downloaded update is available");
       return;
     }
 
+    await this.installVisible(this.pendingInstallerPath, this.pendingManifest);
+  }
+
+  private async installVisible(installerPath: string, manifest: UpdateManifest): Promise<void> {
     await this.updateHealth({
       status: "installing",
       latestVersion: manifest.version,
@@ -253,12 +257,12 @@ export class AutoUpdaterService {
       lastError: null
     });
     await this.options.onStatus?.(`Installing update ${manifest.version}`);
-    await this.options.logger(`auto update installing version=${manifest.version} from ${installerPath}`);
+    await this.options.logger(`manual update launching visible installer version=${manifest.version} from ${installerPath}`);
     await this.options.onBeforeInstall(installerPath, manifest);
-    spawn(installerPath, ["/S"], {
+    spawn(installerPath, [], {
       detached: true,
       stdio: "ignore",
-      windowsHide: true
+      windowsHide: false
     }).unref();
     this.options.quit();
   }
