@@ -3,7 +3,7 @@ import { BrowserContext, Page, chromium } from "playwright";
 import { ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { FollowingFeedLiveStream, GiveawayState } from "./types.js";
+import type { FollowingFeedLiveStream, GiveawayState, GiveawayWinnerState } from "./types.js";
 
 const chromiumChannels = ["chrome"] as const;
 const whatnotHomeUrl = "https://www.whatnot.com/";
@@ -60,6 +60,8 @@ export class BrowserService {
   private onBrowserEvent: ((message: string) => void) | null = null;
   private onStreamPreviewFrame: ((streamId: string, imageDataUrl: string | null) => void) | null = null;
   private onGiveawayState: ((streamId: string, state: GiveawayState) => void) | null = null;
+  private onGiveawayWinner: ((streamId: string, winner: GiveawayWinnerState) => void) | null = null;
+  private emittedGiveawayWinners = new Set<string>();
   private feedBlocked = false;
   private authorizationInProgress = false;
   private authorizationProcess: ChildProcess | null = null;
@@ -77,6 +79,10 @@ export class BrowserService {
 
   setGiveawayStateSink(sink: (streamId: string, state: GiveawayState) => void): void {
     this.onGiveawayState = sink;
+  }
+
+  setGiveawayWinnerSink(sink: (streamId: string, winner: GiveawayWinnerState) => void): void {
+    this.onGiveawayWinner = sink;
   }
 
   setAuthenticated(authenticated: boolean): void {
@@ -1073,11 +1079,14 @@ export class BrowserService {
   ): Promise<void> {
     this.touchStreamSignal(stream, "ws");
     this.logGiveawayWsFrameSummary(stream.streamId, stream.streamer, payloadText);
+    const event = this.readPhoenixFrameEvent(payloadText);
+    if (/^giveaway_won$/i.test(event) || /giveaway_won/i.test(payloadText)) {
+      this.emitGiveawayWinner(stream, payloadText, /^phx_reply$/i.test(event));
+    }
     const giveawayState = this.extractGiveawayStateFromPhoenixFrame(stream.streamId, payloadText, "WS_PRIMARY");
     if (!giveawayState) return;
     this.touchStreamSignal(stream, "giveaway");
     const existing = this.giveawayStates.get(stream.streamId);
-    const event = this.readPhoenixFrameEvent(payloadText);
     if (/^phx_reply$/i.test(event) && giveawayState.giveawayName && existing?.giveawayName) {
       this.onBrowserEvent?.(`ignored giveaway WS ${stream.streamId}: event=${event}; reason=historical reply cannot replace active giveaway`);
       return;
@@ -1129,6 +1138,75 @@ export class BrowserService {
       return Array.isArray(frame) ? String(frame[3] ?? "") : "";
     } catch {
       return "";
+    }
+  }
+
+  private emitGiveawayWinner(stream: FollowingFeedLiveStream, payloadText: string, snapshot: boolean): void {
+    try {
+      const frame = JSON.parse(payloadText);
+      const payload = Array.isArray(frame) ? frame[4] : null;
+      if (!payload || typeof payload !== "object") return;
+      const emit = (giveawayId: unknown, winnerName: unknown, prize: unknown, timestamp?: unknown) => {
+        const id = String(giveawayId ?? "").trim();
+        const winnerUsername = String(winnerName ?? "").trim();
+        const prizeName = String(prize ?? "").replace(/\s+/g, " ").trim();
+        if (!id || !winnerUsername || !prizeName) return;
+        const key = `${stream.streamId}:${id}`.toLowerCase();
+        if (this.emittedGiveawayWinners.has(key)) return;
+        this.emittedGiveawayWinners.add(key);
+        if (this.emittedGiveawayWinners.size > 2_000) this.emittedGiveawayWinners.clear();
+        const parsedTime = typeof timestamp === "string" && !Number.isNaN(Date.parse(timestamp))
+          ? new Date(timestamp).toISOString()
+          : new Date().toISOString();
+        const winner: GiveawayWinnerState = {
+          giveawayId: id,
+          winnerUsername,
+          prizeName,
+          wonAt: parsedTime,
+          source: snapshot ? "snapshot" : "live"
+        };
+        this.onGiveawayWinner?.(stream.streamId, winner);
+        this.onBrowserEvent?.(`giveaway winner ${stream.streamer ?? stream.streamId}: ${winnerUsername} won ${prizeName}`);
+      };
+
+      const record = payload as Record<string, unknown>;
+      const giveaway = record.giveaway && typeof record.giveaway === "object" ? record.giveaway as Record<string, unknown> : {};
+      const product = record.product && typeof record.product === "object" ? record.product as Record<string, unknown> : {};
+      const purchaser = product.purchaserUser && typeof product.purchaserUser === "object" ? product.purchaserUser as Record<string, unknown> : {};
+      emit(giveaway.productId ?? giveaway.id ?? product.id, purchaser.username, product.name, record.timestamp ?? record.createdAt);
+
+      const seen = new WeakSet<object>();
+      const visit = (value: unknown, depth: number) => {
+        if (!value || typeof value !== "object" || depth > 9 || seen.has(value)) return;
+        seen.add(value);
+        if (Array.isArray(value)) {
+          for (let index = value.length - 1; index >= 0; index -= 1) visit(value[index], depth + 1);
+          return;
+        }
+        const activity = value as Record<string, unknown>;
+        const eventName = String(activity.eventName ?? activity.event_name ?? activity.event ?? "");
+        if (/^giveaway_won$/i.test(eventName)) {
+          const user = activity.activityPerformingUser && typeof activity.activityPerformingUser === "object"
+            ? activity.activityPerformingUser as Record<string, unknown>
+            : {};
+          const eventInfo = activity.eventSpecificInfo && typeof activity.eventSpecificInfo === "object"
+            ? activity.eventSpecificInfo as Record<string, unknown>
+            : {};
+          const activityProduct = eventInfo.livestreamProduct && typeof eventInfo.livestreamProduct === "object"
+            ? eventInfo.livestreamProduct as Record<string, unknown>
+            : {};
+          emit(
+            activityProduct.id ?? activityProduct.productId ?? activity.id,
+            user.username,
+            activityProduct.name ?? activityProduct.title,
+            activity.createdAt ?? activity.timestamp ?? activity.occurredAt
+          );
+        }
+        for (const nested of Object.values(activity)) visit(nested, depth + 1);
+      };
+      visit(payload, 0);
+    } catch {
+      // Ignore malformed or non-JSON frames.
     }
   }
 

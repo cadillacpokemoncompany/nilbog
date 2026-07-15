@@ -47,6 +47,9 @@ export interface StreamCard {
   title: string | null;
   currentItem: string | null;
   giveawayName: string | null;
+  lastWinner?: string | null;
+  lastWonItem?: string | null;
+  lastWinnerAt?: string | null;
   entryCount: number | null;
   viewerCount: number | null;
   thumbnailImageDataUrl: string | null;
@@ -77,6 +80,14 @@ export interface GiveawayState {
   source: "WS_PRIMARY" | "BROWSER_APOLLO" | "DOM_SCRAPE";
   confidence: number;
   updatedAt: string;
+}
+
+export interface GiveawayWinnerState {
+  giveawayId: string;
+  winnerUsername: string;
+  prizeName: string;
+  wonAt: string;
+  source?: "live" | "snapshot";
 }
 
 export type AutopilotRuntimeState = "OFF" | "READY" | "NO_PROFILE" | "NO_DEVICE" | "NO_MATCH" | "PARKED" | "MATCHED" | "DRY_RUN";

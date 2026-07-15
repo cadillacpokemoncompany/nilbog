@@ -18,6 +18,11 @@ const cleanBlock = (value: string): string =>
     .join("\n")
     .toUpperCase();
 
+const reportLine = (value: string): string => {
+  const cleaned = cleanBlock(value || "UNKNOWN").replace(/\s+/g, " ");
+  return cleaned.length > 20 ? `${cleaned.slice(0, 17)}...` : cleaned;
+};
+
 const discordTimeoutMs = 8_000;
 const discordMaxAttempts = 3;
 
@@ -78,8 +83,40 @@ export class NotificationService {
     await this.post({ content });
   }
 
-  private async post(payload: Record<string, unknown>): Promise<void> {
-    if (!this.webhookUrl) return;
+  async sendWinnerReport(entries: Array<{ stream: string; giveaway: string; winner: string }>): Promise<boolean> {
+    if (!this.webhookUrl || entries.length === 0) return false;
+    const blocks = entries.map((entry) => [
+      `STREAM: ${reportLine(entry.stream)}`,
+      `GIVEAWAY: ${reportLine(entry.giveaway)}`,
+      `WINNER: ${reportLine(entry.winner)}`
+    ].join("\n"));
+    const parts: string[] = [];
+    let current = "";
+    for (const block of blocks) {
+      const trimmed = block.slice(0, 900);
+      const candidate = current ? `${current}\n\n${trimmed}` : trimmed;
+      if (candidate.length > 3_700 && current) {
+        parts.push(current);
+        current = trimmed;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) parts.push(current);
+    for (let index = 0; index < parts.length; index += 1) {
+      const sent = await this.post({ embeds: [{
+        color: alertStyles.win.color,
+        title: `10 WIN REPORT${parts.length > 1 ? ` - PART ${index + 1}/${parts.length}` : ""}`,
+        description: parts[index],
+        timestamp: new Date().toISOString()
+      }] });
+      if (!sent) return false;
+    }
+    return true;
+  }
+
+  private async post(payload: Record<string, unknown>): Promise<boolean> {
+    if (!this.webhookUrl) return false;
     const body = JSON.stringify({
       username: "Nilbog",
       ...payload
@@ -100,7 +137,7 @@ export class NotificationService {
         clearTimeout(timeout);
         if (response.ok) {
           await this.logger(`discord notification sent status=${response.status} attempt=${attempt}`);
-          return;
+          return true;
         }
 
         const responseText = await response.text().catch(() => "");
@@ -114,5 +151,6 @@ export class NotificationService {
         await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
       }
     }
+    return false;
   }
 }

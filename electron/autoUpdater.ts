@@ -25,7 +25,7 @@ interface AutoUpdaterOptions {
 
 const UPDATE_CHECK_MS = 5 * 60_000;
 const GITHUB_UPDATE_MANIFEST_URL =
-  "https://github.com/cadillacpokemoncompany/nilbog/releases/latest/download/latest.json";
+  "https://github.com/cadillacpokemoncompany/nilbog/releases/download/nilboglite/latest.json";
 
 const parseVersion = (value: string): number[] =>
   value

@@ -339,6 +339,11 @@ export default function App() {
                     <strong>{(card.giveawayName || "Waiting for info").toUpperCase()}</strong>
                     <span>{cardReasons.get(card.slot)}</span>
                   </div>
+                  <div className="stream-winner" title={card.lastWonItem ?? "No winner recorded"}>
+                    <span>LAST WINNER</span>
+                    <strong>{card.lastWinner ? card.lastWinner.toUpperCase() : "WAITING"}</strong>
+                    <em>{card.lastWonItem ? card.lastWonItem.toUpperCase() : "NO WINNER RECORDED"}</em>
+                  </div>
                 </div>
           </article>
           );

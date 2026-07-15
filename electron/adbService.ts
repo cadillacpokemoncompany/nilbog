@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 const whatnotPackage = "com.whatnot_mobile";
 const baseDisplayWidth = 720;
 const baseDisplayHeight = 1604;
-const forcedBrightness = "25";
+const forcedBrightness = "13";
 const displayPrepareThrottleMs = 30_000;
 const fullscreenPrepareThrottleMs = 60_000;
 const lowPowerThrottleMs = 5 * 60_000;
@@ -159,10 +159,15 @@ export class AdbService {
   }
 
   async isWinnerPopupVisible(deviceId: string): Promise<{ visible: boolean; detail: string }> {
-    const text = await this.readUiXml(deviceId, "nilbog_winner_watch.xml", 1_800).catch(() => "");
+    const { stdout } = await execFileAsync(
+      adbExecutable(),
+      ["-s", deviceId, "exec-out", "uiautomator", "dump", "--compressed", "/dev/tty"],
+      { windowsHide: true, timeout: 1_500, maxBuffer: 2 * 1024 * 1024 }
+    ).catch(() => ({ stdout: "", stderr: "" }));
+    const text = String(stdout ?? "");
     return {
       visible: hasWinnerPopupText(text),
-      detail: text ? "winner popup UI text scanned" : "winner popup UI text unavailable"
+      detail: text ? "winner popup fast UI text scanned" : "winner popup UI text unavailable"
     };
   }
 

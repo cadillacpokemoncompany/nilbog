@@ -9,6 +9,7 @@ import { ConfigStore } from "./configStore.js";
 import { NotificationService } from "./notificationService.js";
 import { Scanner } from "./scanner.js";
 import { WhatnotResolver } from "./whatnotResolver.js";
+import { WinnerLedger } from "./winnerLedger.js";
 import type { AdbDevice, AppSnapshot, StreamCard } from "./types.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -31,6 +32,7 @@ let scanner: Scanner;
 let adb: AdbService;
 let autoUpdater: AutoUpdaterService;
 let notifier: NotificationService;
+let winnerLedger: WinnerLedger;
 let lastEnterNotificationKey: string | null = null;
 let autoClickerTimer: NodeJS.Timeout | null = null;
 let autoClickerWatchdogTimer: NodeJS.Timeout | null = null;
@@ -41,10 +43,13 @@ let scannerWatchdogTimer: NodeJS.Timeout | null = null;
 let deviceWatcherRunning = false;
 let displayWatcherRunning = false;
 let winnerWatcherRunning = false;
+let winnerProbeUntil = 0;
 let shutdownStarted = false;
 const whatnotPackage = "com.whatnot_mobile";
 const winnerNotificationSeen = new Map<string, number>();
 const winnerNotificationTtlMs = 30 * 60_000;
+const recentlyTappedStreams = new Map<string, number>();
+const tappedWinnerCorrelationMs = 2 * 60_000;
 
 const debugLog = async (message: string, error?: unknown) => {
   const details = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : (error ? String(error) : "");
@@ -424,6 +429,7 @@ const startAutoClickerLoop = () => {
         card?.resolvedUrl ?? null
       );
       const okCount = settled.filter((result) => result.ok).length;
+      if (okCount > 0 && card.streamUuid) recentlyTappedStreams.set(card.streamUuid, Date.now());
       const failed = settled.find((result) => !result.ok);
       await updateTapHealth(
         {
@@ -512,6 +518,7 @@ const startWinnerWatcherLoop = () => {
     if (winnerWatcherRunning || shutdownStarted) return;
     if (!scanner.state.autoClicker.enabled) return;
     if (scanner.state.autoClicker.dryRun) return;
+    if (Date.now() > winnerProbeUntil) return;
     winnerWatcherRunning = true;
 
     try {
@@ -519,25 +526,21 @@ const startWinnerWatcherLoop = () => {
       const card = bestWinnerContextCard();
       const freshDevices = await adb.listDevices(scanner.state.devices);
       const connectedDevices = freshDevices.filter((device) => device.status === "connected");
-      const batchSize = 4;
       const wins: string[] = [];
 
-      for (let index = 0; index < connectedDevices.length; index += batchSize) {
-        const batch = connectedDevices.slice(index, index + batchSize);
-        const batchResults = await Promise.allSettled(
-          batch.map(async (device) => {
-            const result = await adb.isWinnerPopupVisible(device.id);
-            return { device, result };
-          })
-        );
-
-        for (const settled of batchResults) {
+      const results = await Promise.allSettled(
+        connectedDevices.map(async (device) => ({ device, result: await adb.isWinnerPopupVisible(device.id) }))
+      );
+      for (const settled of results) {
           if (settled.status !== "fulfilled") continue;
           const { device, result } = settled.value;
           if (!result.visible) continue;
 
           const streamer = card?.streamer ?? "Unknown stream";
-          const giveawayName = card?.giveawayName ?? card?.title ?? "Unknown giveaway";
+          const lastWinnerAgeMs = card?.lastWinnerAt ? Date.now() - Date.parse(card.lastWinnerAt) : Number.POSITIVE_INFINITY;
+          const giveawayName = lastWinnerAgeMs <= 30_000 && card?.lastWonItem
+            ? card.lastWonItem
+            : card?.giveawayName ?? card?.title ?? "Unknown giveaway";
           const winnerKey = [device.id, card?.streamUuid ?? "", streamer, giveawayName].join(":");
           if (winnerNotificationSeen.has(winnerKey)) continue;
           winnerNotificationSeen.set(winnerKey, Date.now());
@@ -546,11 +549,6 @@ const startWinnerWatcherLoop = () => {
           wins.push(message);
           await debugLog(`winner popup detected device=${device.id} streamer=${streamer} giveaway=${giveawayName} detail=${result.detail}`);
           void notifier?.sendAlert("win", streamer, giveawayName);
-        }
-
-        if (index + batchSize < connectedDevices.length) {
-          await new Promise((resolve) => setTimeout(resolve, 80));
-        }
       }
 
       if (wins.length) {
@@ -576,7 +574,7 @@ const startWinnerWatcherLoop = () => {
     }
   };
 
-  winnerWatcherTimer = setInterval(() => void watcherTick(), 2_500);
+  winnerWatcherTimer = setInterval(() => void watcherTick(), 750);
 };
 
 const startDisplayWatcherLoop = () => {
@@ -643,6 +641,8 @@ app.whenReady().then(async () => {
   snapshot = await store.load();
   adb = new AdbService();
   notifier = new NotificationService(debugLog, await readLocalDiscordWebhook(store.appDataDir));
+  winnerLedger = new WinnerLedger(store.appDataDir, (entries) => notifier.sendWinnerReport(entries), debugLog);
+  await winnerLedger.load();
   browserService = new BrowserService(store.browserProfilePath);
   browserService.setAuthenticated(snapshot.browser.authenticated);
   browserService.setLogger((message) => void debugLog(`browserService: ${message}`));
@@ -656,6 +656,15 @@ app.whenReady().then(async () => {
   );
   browserService.setGiveawayStateSink((streamId, state) => {
     scanner?.applyGiveawayState(streamId, state);
+  });
+  browserService.setGiveawayWinnerSink((streamId, winner) => {
+    const stream = scanner.state.cards.find((card) => card.streamUuid === streamId)?.streamer ?? "Unknown stream";
+    const lastTappedAt = recentlyTappedStreams.get(streamId) ?? 0;
+    if (winner.source !== "snapshot" && Date.now() - lastTappedAt <= tappedWinnerCorrelationMs) {
+      winnerLedger.record(stream, streamId, winner);
+    }
+    scanner?.applyGiveawayWinner(streamId, winner);
+    if (winner.source !== "snapshot") winnerProbeUntil = Math.max(winnerProbeUntil, Date.now() + 3_500);
   });
   autoUpdater = new AutoUpdaterService({
     userDataPath: store.appDataDir,

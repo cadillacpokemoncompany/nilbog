@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $repoDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $packageJson = Get-Content -LiteralPath (Join-Path $repoDir "package.json") -Raw | ConvertFrom-Json
 $version = [string]$packageJson.version
-$tag = "v$version"
+$tag = "nilboglite"
 $sourceInstallerName = "NilbogLite Setup $version.exe"
 $installerName = "NilbogLite.Setup.$version.exe"
 $installerPath = Join-Path $OutputDir $sourceInstallerName
@@ -42,8 +42,12 @@ if ($gh) {
     if ($DryRun) {
       Write-Host "DRY RUN: gh release create $tag --repo $Repo --title $tag --notes NilbogLite $version"
     } else {
-      & gh release create $tag --repo $Repo --title $tag --notes "NilbogLite $version"
+      & gh release create $tag --repo $Repo --title "NilbogLite $version" --notes "NilbogLite $version" --latest
     }
+  }
+
+  if (-not $DryRun) {
+    & gh release edit $tag --repo $Repo --title "NilbogLite $version" --notes "NilbogLite $version" --latest
   }
 
   if ($DryRun) {

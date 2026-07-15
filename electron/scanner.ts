@@ -3,7 +3,7 @@ import { AdbService } from "./adbService.js";
 import { BrowserService } from "./browserService.js";
 import { ConfigStore } from "./configStore.js";
 import { WhatnotResolver } from "./whatnotResolver.js";
-import type { AdbDevice, AppSnapshot, DeviceRuntimeState, FollowingFeedLiveStream, GiveawayState, StreamCard } from "./types.js";
+import type { AdbDevice, AppSnapshot, DeviceRuntimeState, FollowingFeedLiveStream, GiveawayState, GiveawayWinnerState, StreamCard } from "./types.js";
 
 export type RuntimeNotification = {
   kind: "navigation" | "parking";
@@ -18,13 +18,11 @@ const FEED_HARD_REFRESH_MS = 150_000;
 // A transient empty/partial followed-feed scrape must not eject a valid live target.
 // At the 2.5s scanner cadence this provides roughly one minute for the feed to recover.
 const OFFLINE_GRACE = 24;
-const KRAKEN_SLOT = 0;
-const NOVA_SLOT = 1;
+const PARKING_PRIORITY = ["krakendrips", "krakenhits"];
 const routeVerifyDelayMsFromEnv = Number(process.env.NILBOG_ROUTE_VERIFY_DELAY_MS);
 const routeRetryVerifyDelayMsFromEnv = Number(process.env.NILBOG_ROUTE_RETRY_VERIFY_DELAY_MS);
 const ROUTE_VERIFY_DELAY_MS = Number.isFinite(routeVerifyDelayMsFromEnv) ? Math.max(0, routeVerifyDelayMsFromEnv) : 700;
 const ROUTE_RETRY_VERIFY_DELAY_MS = Number.isFinite(routeRetryVerifyDelayMsFromEnv) ? Math.max(0, routeRetryVerifyDelayMsFromEnv) : 900;
-const ROUTE_REASSERT_MS = 45_000;
 const WHATNOT_PACKAGE = "com.whatnot_mobile";
 const FIXED_AUTOPILOT_RULES: Array<{
   id: number;
@@ -222,6 +220,7 @@ const routeDevicesParallel = async (
 };
 
 export class Scanner {
+  private persistQueue: Promise<void> = Promise.resolve();
   private timer: NodeJS.Timeout | null = null;
   private feedCycleStartedAt = 0;
   private lastFeedHardRefreshAt = 0;
@@ -333,6 +332,24 @@ export class Scanner {
     if (changed) {
       void this.persistAndBroadcast();
     }
+  }
+
+  applyGiveawayWinner(streamId: string, winner: GiveawayWinnerState): void {
+    let changed = false;
+    this.snapshot = {
+      ...this.snapshot,
+      cards: this.snapshot.cards.map((card) => {
+        if (card.streamUuid !== streamId) return card;
+        changed = true;
+        return {
+          ...card,
+          lastWinner: winner.winnerUsername,
+          lastWonItem: winner.prizeName,
+          lastWinnerAt: winner.wonAt
+        };
+      })
+    };
+    if (changed) void this.persistAndBroadcast();
   }
 
   applyStreamPreviewFrame(streamId: string, imageDataUrl: string | null): void {
@@ -516,6 +533,9 @@ export class Scanner {
         clickTargetY: latestCard.clickTargetY,
         clickIntervalMs: latestCard.clickIntervalMs,
         thumbnailImageDataUrl: scannedCard.thumbnailImageDataUrl ?? latestCard.thumbnailImageDataUrl,
+        lastWinner: latestCard.lastWinner,
+        lastWonItem: latestCard.lastWonItem,
+        lastWinnerAt: latestCard.lastWinnerAt,
         giveawayName: giveawayState?.active
           ? (cleanGiveawayName(giveawayState.giveawayName) ?? cleanGiveawayName(scannedCard.giveawayName))
           : scannedCard.status === "offline" || scannedCard.status === "empty"
@@ -579,7 +599,9 @@ export class Scanner {
       return;
     }
 
-    const fallbackTarget = this.snapshot.cards.find((card) => card.slot === KRAKEN_SLOT && card.status === "live" && card.resolvedUrl) ?? null;
+    const fallbackTarget = PARKING_PRIORITY
+      .map((streamer) => this.snapshot.cards.find((card) => normalizeStreamerName(card.streamer) === streamer && card.status === "live" && card.resolvedUrl))
+      .find((card): card is StreamCard => Boolean(card)) ?? null;
     const target = decision.card ?? fallbackTarget;
     const targetIsFallback = !decision.card && Boolean(fallbackTarget);
     const connectedDevices = devices.filter((device) => device.status === "connected");
@@ -590,7 +612,7 @@ export class Scanner {
         this.updateRuntime("NO_DEVICE", "No connected device", decision);
       } else {
         this.lastAutoNavKey = null;
-        this.updateRuntime(this.snapshot.autoClicker.dryRun ? "DRY_RUN" : "NO_MATCH", `${decision.detail}; Kraken fallback not live yet`, decision);
+        this.updateRuntime(this.snapshot.autoClicker.dryRun ? "DRY_RUN" : "NO_MATCH", `${decision.detail}; parking streams not live yet`, decision);
       }
       this.snapshot = {
         ...this.snapshot,
@@ -603,11 +625,10 @@ export class Scanner {
     }
 
     const runtimeState = this.snapshot.autoClicker.dryRun ? "DRY_RUN" : targetIsFallback ? "NO_MATCH" : "MATCHED";
-    const runtimeDetail = targetIsFallback ? `${decision.detail}; staying on KrakenHits` : decision.detail;
+    const runtimeDetail = targetIsFallback ? `${decision.detail}; staying on ${target.streamer}` : decision.detail;
     const nextKey = [target.slot, target.resolvedUrl, targetIsFallback ? "fallback" : "match"].join(":");
     const targetChanged = nextKey !== this.lastAutoNavKey;
-    const shouldReassertRoute = targetChanged || Date.now() - this.lastAutoNavAt >= ROUTE_REASSERT_MS;
-    const routeCandidates = this.snapshot.autoClicker.dryRun || shouldReassertRoute ? connectedDevices : [];
+    const routeCandidates = this.snapshot.autoClicker.dryRun || targetChanged ? connectedDevices : [];
     const skippedAlreadyOnTarget = connectedDevices.length - routeCandidates.length;
 
     let routedCount = this.snapshot.autoClicker.dryRun ? routeCandidates.length : 0;
@@ -685,7 +706,7 @@ export class Scanner {
         kind: targetIsFallback ? "parking" : "navigation",
         streamer: target.streamer,
         detail: [
-          targetIsFallback ? `No match; parked in KrakenHits` : `Navigated due to "${decision.detail}"`,
+          targetIsFallback ? `No match; parked in ${target.streamer}` : `Navigated due to "${decision.detail}"`,
           `Routed ${routedCount}/${routeCandidates.length} phones${skippedAlreadyOnTarget ? `; skipped ${skippedAlreadyOnTarget} already there` : ""}`,
           target.giveawayName ?? ""
         ].filter(Boolean).join("\n")
@@ -814,8 +835,8 @@ export class Scanner {
 
   private updateFocusRouting(previousCards: StreamCard[]): void {
     const { dateKey, hour } = easternDateAndHour();
-    const nova = this.snapshot.cards.find((card) => card.slot === NOVA_SLOT);
-    const previousNova = previousCards.find((card) => card.slot === NOVA_SLOT);
+    const nova = this.snapshot.cards.find((card) => normalizeStreamerName(card.streamer) === "novatcg");
+    const previousNova = previousCards.find((card) => normalizeStreamerName(card.streamer) === "novatcg");
     const novaLiveUuid = nova?.status === "live" ? nova.streamUuid : null;
     const previousNovaUuid = previousNova?.streamUuid ?? null;
     let routing = this.snapshot.focusRouting;
@@ -859,7 +880,13 @@ export class Scanner {
   }
 
   private async persistAndBroadcast(options: { persistLockedStreamers?: boolean; allowStreamerClear?: boolean } = {}): Promise<void> {
-    await this.store.save(this.snapshot, options);
-    this.getWindow()?.webContents.send("snapshot", this.snapshot);
+    const operation = this.persistQueue
+      .catch(() => undefined)
+      .then(async () => {
+        await this.store.save(this.snapshot, options);
+        this.getWindow()?.webContents.send("snapshot", this.snapshot);
+      });
+    this.persistQueue = operation.catch(() => undefined);
+    await operation;
   }
 }
