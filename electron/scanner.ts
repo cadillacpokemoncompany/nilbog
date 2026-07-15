@@ -143,7 +143,7 @@ const routeDevicesParallel = async (
   url: string,
   forceFresh = false
 ): Promise<RouteResult[]> => {
-  const expectedUuid = url.match(/\/live\/([0-9a-f-]{36})/i)?.[1]?.toLowerCase() ?? null;
+  const expectedUuid = url.match(/\/live\/([^/?#]+)/i)?.[1]?.toLowerCase() ?? null;
   const firstPass = await Promise.all(
     devices.map(async (device): Promise<RouteResult> => {
       try {
@@ -168,7 +168,7 @@ const routeDevicesParallel = async (
       if (first && !first.ok) return first;
       const foreground = await adb.getForegroundPackage(device.id).catch(() => null);
       const currentUuid = expectedUuid ? await adb.getCurrentWhatnotStreamUuid(device.id).catch(() => null) : null;
-      const uuidMatches = !expectedUuid || !currentUuid || currentUuid === expectedUuid;
+      const uuidMatches = expectedUuid ? currentUuid === expectedUuid : Boolean(currentUuid);
       return foreground === WHATNOT_PACKAGE && uuidMatches
         ? { deviceId: device.id, ok: true, retried: false }
         : {
@@ -191,7 +191,7 @@ const routeDevicesParallel = async (
     try {
       const foreground = await adb.getForegroundPackage(device.id).catch(() => null);
       const currentUuid = expectedUuid ? await adb.getCurrentWhatnotStreamUuid(device.id).catch(() => null) : null;
-      const uuidMatches = !expectedUuid || !currentUuid || currentUuid === expectedUuid;
+      const uuidMatches = expectedUuid ? currentUuid === expectedUuid : Boolean(currentUuid);
       return foreground === WHATNOT_PACKAGE && uuidMatches
         ? { deviceId: device.id, ok: true, retried: true }
         : {

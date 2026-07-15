@@ -125,14 +125,19 @@ const offlineCard = (slot, streamer) => ({
   lastResolvedAt: iso()
 });
 
-const createHarness = ({ foregroundSequence = [] } = {}) => {
+const createHarness = ({ foregroundSequence = [], hideCurrentUuid = false } = {}) => {
   const calls = [];
   const foregroundChecks = [...foregroundSequence];
+  const currentUuidByDevice = new Map();
+  const rememberRoute = (deviceId, url, fresh = false) => {
+    calls.push({ type: "openUrl", deviceId, url, fresh });
+    currentUuidByDevice.set(deviceId, url.match(/\/live\/([^/?#]+)/i)?.[1]?.toLowerCase() ?? null);
+  };
   const adb = {
-    openUrl: async (deviceId, url) => calls.push({ type: "openUrl", deviceId, url }),
-    openUrlFresh: async (deviceId, url) => calls.push({ type: "openUrl", deviceId, url, fresh: true }),
+    openUrl: async (deviceId, url) => rememberRoute(deviceId, url),
+    openUrlFresh: async (deviceId, url) => rememberRoute(deviceId, url, true),
     getForegroundPackage: async () => foregroundChecks.shift() ?? "com.whatnot_mobile",
-    getCurrentWhatnotStreamUuid: async () => null,
+    getCurrentWhatnotStreamUuid: async (deviceId) => hideCurrentUuid ? null : currentUuidByDevice.get(deviceId) ?? null,
     prepareFullscreenWhatnot: async (deviceId) => calls.push({ type: "fullscreen", deviceId }),
     parkWhatnotOnHome: async (deviceId) => {
       calls.push({ type: "park", deviceId });
@@ -214,7 +219,7 @@ test("falls back to KrakenHits when no match exists", async () => {
   await runNavigation(scanner);
   assert(scanner.state.autoClicker.runtimeState === "NO_MATCH", `expected NO_MATCH fallback runtime, got ${scanner.state.autoClicker.runtimeState}: ${scanner.state.autoClicker.runtimeDetail}`);
   assert(scanner.state.autoClicker.activeSlot === 0, "expected Kraken fallback active slot");
-  assert(openUrls(calls).length === deviceCount, "expected one Kraken open per device");
+  assert(openUrls(calls).length === deviceCount, `expected one Kraken open per device, got ${openUrls(calls).length}: ${JSON.stringify(calls.slice(0, 4))}`);
   assert(openUrls(calls).every((url) => url.endsWith("/uuid-kraken-fallback")), "expected Kraken fallback URL");
   assert(parkCount(calls) === 0, "expected no home parking");
 });
@@ -226,6 +231,14 @@ test("opens every device to first matching stream", async () => {
   assert(scanner.state.autoClicker.activeSlot === 1, "expected active slot 1");
   assert(openUrls(calls).length === deviceCount, "expected one open per device");
   assert(openUrls(calls).every((url) => url.endsWith("/uuid-a")), "expected uuid-a URL");
+});
+
+test("does not accept an unreadable UUID as a successful route", async () => {
+  const { scanner, calls } = createHarness({ hideCurrentUuid: true });
+  setCards(scanner, [streamCard(1, "KrakenHits", "Elite Trainer Box giveaway", "uuid-hidden")]);
+  await runNavigation(scanner);
+  assert(openUrls(calls).length === deviceCount * 2, "expected every unreadable UUID route to retry");
+  assert(scanner.state.autoClicker.deviceRuntime.every((device) => device.phase === "failed"), "expected unreadable UUID devices to remain failed");
 });
 
 test("does not reopen same stream and same giveaway repeatedly", async () => {

@@ -480,14 +480,20 @@ const startDeviceWatcherLoop = () => {
           if (target?.resolvedUrl) {
             const expectedUuid = target.streamUuid?.toLowerCase() ?? null;
             const currentUuid = expectedUuid ? await adb.getCurrentWhatnotStreamUuid(device.id).catch(() => null) : null;
-            if (foregroundPackage === whatnotPackage && (!expectedUuid || !currentUuid || currentUuid === expectedUuid)) return;
-            if (currentUuid && expectedUuid && currentUuid !== expectedUuid) {
+            if (foregroundPackage === whatnotPackage && expectedUuid && currentUuid === expectedUuid) return;
+
+            // A missing UUID is not success. Ended Whatnot pages frequently stop
+            // exposing their stream ID, which previously stranded phones there.
+            await adb.openUrlFresh(device.id, target.resolvedUrl);
+            await new Promise((resolve) => setTimeout(resolve, 900));
+            const verifiedUuid = expectedUuid
+              ? await adb.getCurrentWhatnotStreamUuid(device.id).catch(() => null)
+              : null;
+            if (expectedUuid && verifiedUuid !== expectedUuid) {
               await adb.openUrlFresh(device.id, target.resolvedUrl);
-            } else {
-              await adb.openUrl(device.id, target.resolvedUrl);
             }
             await debugLog(
-              `device watcher redirected device=${device.id} target=${target.streamer} previousForeground=${foregroundPackage ?? "unknown"} previousUuid=${currentUuid ?? "unknown"} expectedUuid=${expectedUuid ?? "unknown"}`
+              `device watcher redirected device=${device.id} target=${target.streamer} previousForeground=${foregroundPackage ?? "unknown"} previousUuid=${currentUuid ?? "unknown"} expectedUuid=${expectedUuid ?? "unknown"} verifiedUuid=${verifiedUuid ?? "unknown"}`
             );
             return;
           }
