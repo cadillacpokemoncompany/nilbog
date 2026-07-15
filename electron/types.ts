@@ -218,12 +218,15 @@ export const createDefaultKeywordRules = (): KeywordScoreRule[] =>
     { id: 4, words: "premium collection", score: 50, omitWords: "streamer:any" },
     { id: 5, words: "upc, ultra premium", score: 250, omitWords: "streamer:any" },
     { id: 6, words: "first partner", score: 25, omitWords: "streamer:any" },
-    { id: 7, words: "100 amazon", score: 100, omitWords: "streamer:any" },
-    { id: 8, words: "250 amazon", score: 250, omitWords: "streamer:any" },
-    { id: 9, words: "500 amazon", score: 500, omitWords: "streamer:any" },
-    { id: 10, words: "1000 amazon", score: 1000, omitWords: "streamer:any" },
+    { id: 7, words: "100 amazon, amazon 100, $100 amazon, amazon $100", score: 100, omitWords: "streamer:any" },
+    { id: 8, words: "250 amazon, amazon 250, $250 amazon, amazon $250", score: 250, omitWords: "streamer:any" },
+    { id: 9, words: "500 amazon, amazon 500, $500 amazon, amazon $500", score: 500, omitWords: "streamer:any" },
+    { id: 10, words: "1000 amazon, amazon 1000, $1000 amazon, amazon $1000", score: 1000, omitWords: "streamer:any" },
     { id: 11, words: "playstation 5, ps5", score: 500, omitWords: "streamer:any" },
     { id: 12, words: "booster box", score: 25, omitWords: "streamer:VendturesVault" },
     { id: 13, words: "booster box", score: 500, omitWords: "streamer:KrakenHits" },
-    { id: 14, words: "booster box", score: 25, omitWords: "streamer:NovaTCG" }
+    { id: 14, words: "booster box", score: 25, omitWords: "streamer:NovaTCG" },
+    { id: 15, words: "25 amazon, amazon 25, $25 amazon, amazon $25", score: 25, omitWords: "streamer:any" },
+    { id: 16, words: "50 amazon, amazon 50, $50 amazon, amazon $50", score: 50, omitWords: "streamer:any" },
+    { id: 17, words: "sponsored, upgraded", score: 100, omitWords: "streamer:TraderBea,TraderBeaPlus" }
   ];

@@ -38,14 +38,17 @@ const FIXED_AUTOPILOT_RULES: Array<{
   { id: 4, score: 50, streamers: "any", phrases: ["premium collection"] },
   { id: 5, score: 250, streamers: "any", phrases: ["upc", "ultra premium"] },
   { id: 6, score: 25, streamers: "any", phrases: ["first partner"] },
-  { id: 7, score: 100, streamers: "any", phrases: ["100 amazon"] },
-  { id: 8, score: 250, streamers: "any", phrases: ["250 amazon"] },
-  { id: 9, score: 500, streamers: "any", phrases: ["500 amazon"] },
-  { id: 10, score: 1000, streamers: "any", phrases: ["1000 amazon"] },
+  { id: 7, score: 100, streamers: "any", phrases: ["100 amazon", "amazon 100", "$100 amazon", "amazon $100"] },
+  { id: 8, score: 250, streamers: "any", phrases: ["250 amazon", "amazon 250", "$250 amazon", "amazon $250"] },
+  { id: 9, score: 500, streamers: "any", phrases: ["500 amazon", "amazon 500", "$500 amazon", "amazon $500"] },
+  { id: 10, score: 1000, streamers: "any", phrases: ["1000 amazon", "amazon 1000", "$1000 amazon", "amazon $1000"] },
   { id: 11, score: 500, streamers: "any", phrases: ["playstation 5", "ps5"] },
   { id: 12, score: 25, streamers: ["vendturesvault"], phrases: ["booster box"] },
   { id: 13, score: 500, streamers: ["krakenhits"], phrases: ["booster box"] },
-  { id: 14, score: 25, streamers: ["novatcg"], phrases: ["booster box"] }
+  { id: 14, score: 25, streamers: ["novatcg"], phrases: ["booster box"] },
+  { id: 15, score: 25, streamers: "any", phrases: ["25 amazon", "amazon 25", "$25 amazon", "amazon $25"] },
+  { id: 16, score: 50, streamers: "any", phrases: ["50 amazon", "amazon 50", "$50 amazon", "amazon $50"] },
+  { id: 17, score: 100, streamers: ["traderbea", "traderbeaplus"], phrases: ["sponsored", "upgraded"] }
 ];
 const normalizeStreamerName = (value: string | null | undefined): string =>
   (value ?? "").trim().replace(/^@/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
