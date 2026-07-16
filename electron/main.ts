@@ -580,7 +580,7 @@ const startWinnerWatcherLoop = () => {
     }
   };
 
-  winnerWatcherTimer = setInterval(() => void watcherTick(), 750);
+  winnerWatcherTimer = setInterval(() => void watcherTick(), 1_000);
 };
 
 const startDisplayWatcherLoop = () => {
@@ -670,7 +670,7 @@ app.whenReady().then(async () => {
       winnerLedger.record(stream, streamId, winner);
     }
     scanner?.applyGiveawayWinner(streamId, winner);
-    if (winner.source !== "snapshot") winnerProbeUntil = Math.max(winnerProbeUntil, Date.now() + 3_500);
+    if (winner.source !== "snapshot") winnerProbeUntil = Math.max(winnerProbeUntil, Date.now() + 20_000);
   });
   autoUpdater = new AutoUpdaterService({
     userDataPath: store.appDataDir,

@@ -164,10 +164,13 @@ export class AdbService {
       ["-s", deviceId, "exec-out", "uiautomator", "dump", "--compressed", "/dev/tty"],
       { windowsHide: true, timeout: 1_500, maxBuffer: 2 * 1024 * 1024 }
     ).catch(() => ({ stdout: "", stderr: "" }));
-    const text = String(stdout ?? "");
+    const fastText = String(stdout ?? "");
+    const text = fastText || await this.readUiXml(deviceId, "nilbog_winner_watch.xml", 2_500).catch(() => "");
     return {
       visible: hasWinnerPopupText(text),
-      detail: text ? "winner popup fast UI text scanned" : "winner popup UI text unavailable"
+      detail: text
+        ? (fastText ? "winner popup fast UI text scanned" : "winner popup fallback UI text scanned")
+        : "winner popup UI text unavailable"
     };
   }
 
